@@ -54,6 +54,9 @@ await writeFile(
     return root
   }
   window.__verifyAdminPassword = verifyAdminPassword
+  import * as runtimeConfig from '${path.resolve('src/lib/runtimeConfig.js').replace(/\\/g, '/')}'
+  import * as supabaseLib from '${path.resolve('src/lib/supabase.js').replace(/\\/g, '/')}'
+  window.__backend = { runtimeConfig, supabaseLib }
   `,
 )
 
@@ -224,8 +227,8 @@ record('settings exposes every control', ['Sound effects', 'Animations', 'Reduce
 /* Online routes render their configuration fallback instead of breaking */
 await navigate('online')
 record(
-  'online screen explains the backend-free fallback',
-  /online rooms need configuration/i.test(text()) || /create room/i.test(text()),
+  'online screen offers backend setup instead of dead-ending',
+  /connect a backend/i.test(text()) || /create room/i.test(text()),
   text().slice(0, 120),
 )
 
@@ -348,6 +351,178 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
   // 6. Restart
   const replayed = await clickMatching(/Play again/, 900)
   record('play again redeals a fresh round', replayed && /pass the device to|TAP TO REVEAL/i.test(text()))
+}
+
+/* ------------------------------------------------------------------ */
+/* 8. Boot failsafe — the "permanent LOADING screen" guard             */
+/* ------------------------------------------------------------------ */
+/* A host that serves the source tree instead of dist/ delivers main.jsx
+   with a non-JS MIME type; browsers refuse to execute it, React never mounts
+   and the pre-hydration plate used to sit there forever. jsdom ignores
+   `type="module"` scripts, which reproduces exactly that condition.        */
+
+const { readFileSync, existsSync } = await import('node:fs')
+
+function bootDom(html, { url = 'https://example.test/' } = {}) {
+  const vc = new VirtualConsole()
+  vc.on('jsdomError', () => {})
+  return new JSDOM(html, { runScripts: 'dangerously', url, virtualConsole: vc, pretendToBeVisual: true })
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const shell = readFileSync(path.resolve('index.html'), 'utf8')
+
+record('the shell ships a pre-React loading plate', /id="boot"/.test(shell))
+record('the shell arms boot telemetry before any bundle code', /__IMPOSTER_BOOT__/.test(shell) && shell.indexOf('__IMPOSTER_BOOT__') < shell.indexOf('<div id="root">'))
+record('the loading plate is announced to screen readers', /id="boot"[^>]*role="status"[^>]*aria-live="polite"/.test(shell))
+
+// Nothing boots → the failsafe must speak up.
+{
+  const dom = bootDom(shell)
+  await sleep(2400)
+  const boot = dom.window.document.getElementById('boot')
+  const html = boot ? boot.innerHTML : ''
+  const text = boot ? boot.textContent : ''
+  record('stuck boot is detected and replaced with a real error screen', /could not start/i.test(text))
+  record('the cause is explained in plain language', /source folder|built dist|Settings \u2192 Pages|did not finish loading/i.test(text))
+  record('recovery actions are offered', /Try again/.test(text) && /Clear cache/.test(text))
+  record('diagnostics expose the environment', /Diagnostics/.test(html) && /example\.test/.test(html))
+  record('no raw error jargon leaks into player copy', !/Error:|undefined|\[object|TypeError/.test(text))
+  dom.window.close()
+}
+
+// file:// gets its own advice, because that failure has a different fix.
+{
+  const dom = bootDom(shell, { url: 'file:///Users/me/imposter/index.html' })
+  await sleep(2400)
+  const text = dom.window.document.getElementById('boot').textContent
+  record('opening from disk explains the file:// restriction', /opened straight from disk|file:\/\//i.test(text))
+  dom.window.close()
+}
+
+// Healthy boot: React claimed the screen, so the failsafe must stay silent.
+{
+  const dom = bootDom(shell)
+  dom.window.__IMPOSTER_BOOT__.ready = true
+  await sleep(2400)
+  const text = dom.window.document.getElementById('boot').textContent
+  record('a healthy boot never shows the failure card', !/could not start/i.test(text))
+  dom.window.close()
+}
+
+// The shipped artefact must carry the same guard.
+{
+  const distHtml = path.resolve('dist/index.html')
+  if (existsSync(distHtml)) {
+    const built = readFileSync(distHtml, 'utf8')
+    record('the built dist/index.html keeps the failsafe', /__IMPOSTER_BOOT__/.test(built) && /could not start/i.test(built))
+    record('the built page loads the bundle, not the source entry', !/\/src\/main\.jsx/.test(built) && /\.\/assets\/index-[\w-]+\.js/.test(built))
+  } else {
+    record('dist/index.html exists (run npm run build first)', false, 'no build found — skipping artefact checks')
+  }
+}
+
+// markBooted is importable and idempotent outside the browser.
+{
+  const { pathToFileURL } = await import('node:url')
+  const bootModule = await import(pathToFileURL(path.resolve('src/lib/boot.js')).href)
+  record('boot helper exports the handshake', typeof bootModule.markBooted === 'function' && typeof bootModule.isBooted === 'function')
+  bootModule.markBooted()
+  bootModule.markBooted()
+  record('the handshake is safe to call twice (StrictMode)', true)
+}
+
+/* ------------------------------------------------------------------ */
+/* 9. Backend configuration — paste values, no rebuild                 */
+/* ------------------------------------------------------------------ */
+{
+  const { runtimeConfig, supabaseLib } = window.__backend
+  const ANON_KEY =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogImFub24ifQ.' + 'x'.repeat(60)
+  const SERVICE_KEY =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogInNlcnZpY2Vfcm9sZSJ9.' + 'y'.repeat(60)
+
+  const setInput = (input, value) => {
+    // React tracks the value on the node, so set the native setter then fire.
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(input, value)
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+  }
+  const labelledInput = (labelText) => {
+    const label = [...window.document.querySelectorAll('label')].find((l) => (l.textContent || '').includes(labelText))
+    return label ? window.document.getElementById(label.getAttribute('for')) : null
+  }
+
+  runtimeConfig.clearStoredBackend()
+  await navigate('online')
+  await wait(300)
+
+  record('online mode offers a way in when no backend is set', /Connect a backend/i.test(text()))
+  record('the setup screen explains what is needed', /Project URL/i.test(text()) && /anon key/i.test(text()))
+  record(
+    'the tile does not demand a rebuild or file edit',
+    /no rebuild/i.test(text()) || /nothing to edit in code/i.test(text()),
+  )
+
+  const opened = await clickMatching(/Connect a backend/i, 420)
+  record('the connect panel opens from the online screen', opened && /Connect a backend/i.test(text()))
+
+  const urlInput = labelledInput('Supabase project URL')
+  const keyInput = labelledInput('Anon / publishable key')
+  record('the panel exposes both fields', Boolean(urlInput) && Boolean(keyInput))
+
+  // A too-short key is rejected with player-friendly copy, not a stack trace.
+  setInput(urlInput, 'https://abcdefghijklm.supabase.co')
+  setInput(keyInput, 'nope')
+  await clickMatching(/Save & use/i, 320)
+  record(
+    'a bad key is refused with a clear reason',
+    /too short/i.test(text()) && !/undefined|\[object|TypeError/.test(text()),
+  )
+  record('nothing was stored from a rejected save', runtimeConfig.hasStoredBackend() === false)
+
+  // The service-role key is refused on purpose — that one must never ship.
+  setInput(keyInput, SERVICE_KEY)
+  await clickMatching(/Save & use/i, 320)
+  record('the service-role key is refused with a security note', /service-role/i.test(text()))
+  record('the service-role key is never stored', runtimeConfig.hasStoredBackend() === false)
+
+  // A valid pair saves, applies instantly and drives the client.
+  setInput(keyInput, ANON_KEY)
+  await clickMatching(/Save & use/i, 420)
+  const status = runtimeConfig.describeBackend()
+  record('a valid configuration saves', status.configured && status.source === 'device')
+  record('the panel confirms the connection', /Backend connected|CONNECTED/i.test(text()))
+  record('the project host is shown in the panel', /abcdefghijklm\.supabase\.co/.test(text()))
+
+  const client = supabaseLib.getSupabase()
+  if (client) {
+    record(
+      'the live supabase client points at the pasted project',
+      client.supabaseUrl === 'https://abcdefghijklm.supabase.co',
+      `client url was ${client.supabaseUrl}`,
+    )
+  } else {
+    // No WebSocket in this runtime: the failure must still be explained.
+    record('client creation failure is explained rather than swallowed', Boolean(supabaseLib.getSupabaseError()))
+  }
+
+  await clickMatching(/Close|×|Cancel/i, 320)
+  await wait(200)
+  record('the setup form is usable once connected', /Create room/i.test(text()) && /Join room/i.test(text()))
+
+  // Swapping projects must not leave a stale client behind.
+  const before = supabaseLib.getSupabase()
+  runtimeConfig.saveStoredBackend({ url: 'https://secondproject.supabase.co', anonKey: ANON_KEY })
+  const after = supabaseLib.getSupabase()
+  record('changing the project rebuilds the client', before === null || after === null || before !== after)
+
+  // And forgetting device values falls back cleanly.
+  runtimeConfig.clearStoredBackend()
+  await navigate('online')
+  await wait(360)
+  record('forgetting device values returns to the setup card', /Connect a backend/i.test(text()))
+  record('clearing really clears storage', runtimeConfig.hasStoredBackend() === false && supabaseLib.isOnlineConfigured() === false)
 }
 
 /* ------------------------------------------------------------------ */

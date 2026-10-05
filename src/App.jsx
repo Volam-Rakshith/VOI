@@ -3,7 +3,7 @@
  * Hash routing keeps every screen refresh-safe on GitHub Pages.
  */
 
-import { Component, Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { ROUTES } from './data/constants.js'
 import { useRouter } from './lib/router.jsx'
@@ -11,9 +11,10 @@ import { AmbientBackground } from './components/effects/AmbientBackground.jsx'
 import { SplashScreen } from './components/effects/SplashScreen.jsx'
 import { Home } from './pages/Home.jsx'
 import { LoadingScreen, ErrorState } from './components/ui/Feedback.jsx'
-import { Button } from './components/ui/Button.jsx'
+import { ErrorBoundary } from './components/ui/ErrorBoundary.jsx'
 import { BlackBoxGate } from './components/admin/BlackBoxGate.jsx'
 import { isUnlocked } from './lib/blackbox.js'
+import { markBooted } from './lib/boot.js'
 
 /* Heavier screens are code-split so the menu stays instant on mobile. */
 const LocalGame = lazy(() => import('./pages/LocalGame.jsx').then((m) => ({ default: m.LocalGame })))
@@ -22,46 +23,6 @@ const Lobby = lazy(() => import('./pages/Lobby.jsx').then((m) => ({ default: m.L
 const HowToPlay = lazy(() => import('./pages/HowToPlay.jsx').then((m) => ({ default: m.HowToPlay })))
 const Settings = lazy(() => import('./pages/Settings.jsx').then((m) => ({ default: m.Settings })))
 const BlackBox = lazy(() => import('./pages/BlackBox.jsx').then((m) => ({ default: m.BlackBox })))
-
-class ErrorBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { error: null }
-  }
-
-  static getDerivedStateFromError(error) {
-    return { error }
-  }
-
-  componentDidCatch(error, info) {
-    // Kept intentionally quiet for players; useful in a local dev console.
-    if (import.meta.env.DEV) console.error('[imposter] render error', error, info)
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="screen items-center justify-center px-4 py-16">
-          <ErrorState
-            title="Something broke"
-            message="The app hit an unexpected error. Reloading usually clears it — your settings and words are stored safely on this device."
-            action={
-              <div className="flex gap-2">
-                <Button size="sm" variant="primary" onClick={() => window.location.reload()}>
-                  Reload
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => { window.location.hash = '#/home'; window.location.reload() }}>
-                  Back to menu
-                </Button>
-              </div>
-            }
-          />
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
 
 export function App() {
   const { path, navigate } = useRouter()
@@ -73,12 +34,9 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    // Remove the pre-hydration paint plate once React owns the screen.
-    const boot = document.getElementById('boot')
-    if (boot) {
-      boot.style.opacity = '0'
-      setTimeout(() => boot.remove(), 420)
-    }
+    // Tell the pre-React shell in index.html that the app is alive, which
+    // stands down the "could not start" failsafe and dissolves the Loading plate.
+    markBooted()
   }, [])
 
   const renderRoute = () => {
@@ -106,7 +64,7 @@ export function App() {
   }
 
   return (
-    <ErrorBoundary>
+    <ErrorBoundary title="Something broke" onReset={() => navigate(ROUTES.home)}>
       <AmbientBackground />
 
       <AnimatePresence>{!splashDone && <SplashScreen key="splash" onDone={() => setSplashDone(true)} />}</AnimatePresence>

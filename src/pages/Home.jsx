@@ -9,7 +9,7 @@ import { BRAND, ROUTES } from '../data/constants.js'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge, Glyph, ScreenShell } from '../components/ui/Layout.jsx'
 import { Logo } from '../components/ui/Logo.jsx'
-import { isConfigured } from '../lib/onlineService.js'
+import { isConfigured, refreshConfiguration } from '../lib/onlineService.js'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { playSfx } from '../lib/sound.js'
 
@@ -59,7 +59,19 @@ export function Home({ onNavigate, onSecretAccess }) {
   const { settings } = useSettings()
 
   useEffect(() => {
+    // Resolve runtime configuration (device settings → runtime-config.json →
+    // build variables) so the ONLINE ROOM tile reflects reality even when the
+    // values were never baked into this build.
+    let alive = true
     setOnlineReady(isConfigured())
+    refreshConfiguration()
+      .then((ready) => {
+        if (alive) setOnlineReady(ready)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
   }, [])
 
   const menu = [

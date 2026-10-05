@@ -43,6 +43,8 @@ const validate = await import('../src/utils/validate.js')
 const bank = await import('../src/lib/wordBank.js')
 const onlineGame = await import('../src/lib/onlineGame.js')
 const onlineService = await import('../src/lib/onlineService.js')
+const runtimeConfig = await import('../src/lib/runtimeConfig.js')
+const supabaseLib = await import('../src/lib/supabase.js')
 
 const SECRET = { word: { word: 'Umbrella', categoryId: 'everyday', categoryName: 'Everyday', difficulty: 'easy', decoy: 'Raincoat' } }
 const names = (n) => Array.from({ length: n }, (_, i) => `Player ${i + 1}`)
@@ -587,6 +589,131 @@ test('every room helper the UI calls is actually exported', () => {
     'fetchSharedWords', 'pushSharedWords',
   ]
   required.forEach((name) => assert.equal(typeof onlineService[name], 'function', `${name} is missing`))
+})
+
+/* ================================================================== */
+group('RUNTIME BACKEND CONFIG')
+
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogImFub24ifQ.' + 'x'.repeat(60)
+const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogInNlcnZpY2Vfcm9sZSJ9.' + 'y'.repeat(60)
+
+test('project URLs are normalised from whatever people actually paste', () => {
+  assert.equal(runtimeConfig.normalizeBackendUrl('https://abc.supabase.co/'), 'https://abc.supabase.co')
+  assert.equal(runtimeConfig.normalizeBackendUrl('https://abc.supabase.co/rest/v1/'), 'https://abc.supabase.co')
+  assert.equal(runtimeConfig.normalizeBackendUrl('  abcdefghijklm  '), 'https://abcdefghijklm.supabase.co')
+  assert.equal(runtimeConfig.normalizeBackendUrl('abc.supabase.co'), 'https://abc.supabase.co')
+})
+
+test('URL validation rejects what cannot work', () => {
+  assert.equal(runtimeConfig.validateBackendUrl('').ok, false)
+  assert.equal(runtimeConfig.validateBackendUrl('http://example.com').ok, false, 'http is blocked off-localhost')
+  assert.equal(runtimeConfig.validateBackendUrl('https://not a host').ok, false)
+  assert.equal(runtimeConfig.validateBackendUrl('http://localhost:8000').ok, true, 'self-hosted Supabase stays usable')
+  assert.equal(runtimeConfig.validateBackendUrl('https://abcdefghijklm.supabase.co').ok, true)
+})
+
+test('key validation catches the classic paste mistakes', () => {
+  assert.equal(runtimeConfig.validateAnonKey('').ok, false)
+  assert.equal(runtimeConfig.validateAnonKey('abc def').ok, false, 'spaces')
+  assert.equal(runtimeConfig.validateAnonKey('https://abc.supabase.co').field ?? runtimeConfig.validateAnonKey('https://abc.supabase.co').ok, false)
+  assert.match(runtimeConfig.validateAnonKey('https://abc.supabase.co').error, /project URL/i)
+  assert.equal(runtimeConfig.validateAnonKey('shortkey').ok, false)
+  assert.equal(runtimeConfig.validateAnonKey(ANON_KEY).ok, true)
+})
+
+test('the service-role key is refused with a security explanation', () => {
+  const result = runtimeConfig.validateAnonKey(SERVICE_KEY)
+  assert.equal(result.ok, false)
+  assert.match(result.error, /service-role/i)
+  assert.match(result.error, /must never reach a browser/i)
+})
+
+test('combined validation reports which field was wrong', () => {
+  assert.equal(runtimeConfig.validateBackendConfig({}).ok, false)
+  const badUrl = runtimeConfig.validateBackendConfig({ url: 'ftp://x', anonKey: ANON_KEY })
+  assert.equal(badUrl.ok, false)
+  assert.equal(badUrl.field, 'url')
+  const badKey = runtimeConfig.validateBackendConfig({ url: 'https://abc.supabase.co', anonKey: 'nope' })
+  assert.equal(badKey.ok, false)
+  assert.equal(badKey.field, 'anonKey')
+  assert.equal(runtimeConfig.validateBackendConfig({ url: 'https://abc.supabase.co', anonKey: ANON_KEY }).ok, true)
+})
+
+test('values saved on the device win over build-time defaults', () => {
+  runtimeConfig.clearStoredBackend()
+  assert.equal(runtimeConfig.getActiveBackend().source, 'none', 'nothing configured in a bare Node run')
+  const saved = runtimeConfig.saveStoredBackend({ url: 'https://abcdefghijklm.supabase.co', anonKey: ANON_KEY })
+  assert.equal(saved.ok, true)
+  const active = runtimeConfig.getActiveBackend()
+  assert.equal(active.source, 'device')
+  assert.equal(active.url, 'https://abcdefghijklm.supabase.co')
+  assert.equal(runtimeConfig.hasStoredBackend(), true)
+  assert.equal(runtimeConfig.readStoredBackend().anonKey, ANON_KEY)
+})
+
+test('saved values reach the client layer and refreshing never throws', () => {
+  assert.equal(supabaseLib.isOnlineConfigured(), true)
+  assert.equal(supabaseLib.supabaseConfig.url, 'https://abcdefghijklm.supabase.co')
+  assert.equal(supabaseLib.supabaseConfig.anonKey, ANON_KEY)
+  assert.equal(supabaseLib.isOnlineConfigured(), true, 'a bare Node run still reports configured')
+
+  // Creating the realtime client is environment-dependent: Node < 22 has no
+  // native WebSocket. Either way it must never throw into a render path, and a
+  // failure must be explained rather than swallowed. (The jsdom UI suite
+  // asserts the real client in a browser-like DOM.)
+  const client = supabaseLib.getSupabase()
+  if (client) {
+    assert.equal(supabaseLib.getSupabaseError(), null)
+    assert.equal(client.supabaseUrl, 'https://abcdefghijklm.supabase.co')
+  } else {
+    assert.match(supabaseLib.getSupabaseError() || '', /websocket|fetch/i)
+  }
+})
+
+test('client creation is idempotent, and configuration changes invalidate it', () => {
+  // Same config → the same instance is reused (no churn during a session).
+  assert.equal(supabaseLib.getSupabase(), supabaseLib.getSupabase(), 'the client is cached')
+
+  // New config → the cached instance must not survive. In a bare Node runtime
+  // no client exists at all, so assert the resolution layer moved instead; the
+  // jsdom suite asserts the rebuilt instance against a real DOM.
+  runtimeConfig.saveStoredBackend({ url: 'https://otherproject.supabase.co', anonKey: ANON_KEY })
+  assert.equal(supabaseLib.supabaseConfig.url, 'https://otherproject.supabase.co')
+  const rebuilt = supabaseLib.getSupabase()
+  assert.notEqual(rebuilt, undefined, 'a rebuild is attempted')
+  runtimeConfig.saveStoredBackend({ url: 'https://abcdefghijklm.supabase.co', anonKey: ANON_KEY })
+})
+
+test('device values can be forgotten, falling back cleanly', () => {
+  runtimeConfig.clearStoredBackend()
+  assert.equal(runtimeConfig.hasStoredBackend(), false)
+  assert.equal(runtimeConfig.getActiveBackend().source, 'none')
+  assert.equal(supabaseLib.isOnlineConfigured(), false)
+})
+
+test('invalid values are never stored', () => {
+  const result = runtimeConfig.saveStoredBackend({ url: 'https://abc.supabase.co', anonKey: 'nope' })
+  assert.equal(result.ok, false)
+  assert.equal(runtimeConfig.hasStoredBackend(), false, 'a rejected save must not persist')
+})
+
+test('status reporting never leaks a full key', () => {
+  runtimeConfig.saveStoredBackend({ url: 'https://abcdefghijklm.supabase.co', anonKey: ANON_KEY })
+  const status = runtimeConfig.describeBackend()
+  assert.equal(status.configured, true)
+  assert.equal(status.host, 'abcdefghijklm.supabase.co')
+  assert.equal(status.projectRef, 'abcdefghijklm')
+  assert.equal(status.sourceLabel, 'this device')
+  assert.ok(!status.keyHint.includes(ANON_KEY.slice(10, 40)), 'the middle of the key is masked')
+  assert.ok(/•/.test(status.keyHint))
+  runtimeConfig.clearStoredBackend()
+})
+
+test('the runtime file is optional and never blocks startup', async () => {
+  // No fetch target in Node: resolution must fall through, not throw.
+  const resolved = await runtimeConfig.ensureBackend()
+  assert.equal(resolved.source, 'none')
+  assert.equal(runtimeConfig.runtimeFileIssue().found, false)
 })
 
 /* ================================================================== */

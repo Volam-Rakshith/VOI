@@ -8,9 +8,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "doctor": "node scripts/doctor.mjs",
+    "test": "npm run test:engine && npm run test:ui",
     "test:engine": "node scripts/engine-tests.mjs",
     "test:ui": "node scripts/smoke-test.mjs",
-    "test": "npm run test:engine && npm run test:ui",
     "set-admin-password": "node scripts/set-admin-password.mjs",
     "deploy": "npm run build && node scripts/gh-pages-deploy.mjs"
   },

@@ -6,6 +6,8 @@ import { RouterProvider } from './lib/router.jsx'
 import { SettingsProvider } from './context/SettingsContext.jsx'
 import { WordBankProvider } from './context/WordBankContext.jsx'
 import { ToastProvider } from './context/ToastContext.jsx'
+import { ErrorBoundary } from './components/ui/ErrorBoundary.jsx'
+import { markBooted } from './lib/boot.js'
 
 /**
  * Optional offline shell.
@@ -30,18 +32,26 @@ if (!container) {
   // Should be impossible with index.html in place, but never fail silently.
   document.body.innerHTML =
     '<p style="color:#fff;font-family:system-ui;padding:24px">Imposter could not start: root element missing.</p>'
+  markBooted()
 } else {
   createRoot(container).render(
     <StrictMode>
-      <RouterProvider>
-        <SettingsProvider>
-          <WordBankProvider>
-            <ToastProvider>
-              <App />
-            </ToastProvider>
-          </WordBankProvider>
-        </SettingsProvider>
-      </RouterProvider>
+      {/* Outermost guard: a provider failure still renders a themed,
+          recoverable screen instead of leaving the Loading plate forever. */}
+      <ErrorBoundary
+        title="IMPOSTER could not start"
+        message="A core service failed to initialise. Reloading is usually enough — your settings and word list stay on this device."
+      >
+        <RouterProvider>
+          <SettingsProvider>
+            <WordBankProvider>
+              <ToastProvider>
+                <App />
+              </ToastProvider>
+            </WordBankProvider>
+          </SettingsProvider>
+        </RouterProvider>
+      </ErrorBoundary>
     </StrictMode>,
   )
   registerServiceWorker()

@@ -14,13 +14,17 @@ import { SystemStatus } from '../components/admin/SystemStatus.jsx'
 import { WordManager } from '../components/admin/WordManager.jsx'
 import { RoomManager } from '../components/admin/RoomManager.jsx'
 import { AdminSettings } from '../components/admin/AdminSettings.jsx'
+import { BackendPanel } from '../components/online/BackendPanel.jsx'
 import { isUnlocked, revokeUnlock } from '../lib/blackbox.js'
 import { useWordBank } from '../context/WordBankContext.jsx'
+import { useToast } from '../context/ToastContext.jsx'
+import { applyBackendConfig, forgetBackendConfig } from '../lib/onlineService.js'
 
 const SECTIONS = [
   { id: 'status', label: 'SYSTEM STATUS', hint: 'runtime checks' },
   { id: 'words', label: 'WORD DATABASE', hint: 'create · read · update · delete' },
   { id: 'rooms', label: 'ROOM MANAGEMENT', hint: 'live rooms, terminate' },
+  { id: 'backend', label: 'BACKEND', hint: 'project url · anon key · connection' },
   { id: 'settings', label: 'SETTINGS', hint: 'sync · session · data' },
 ]
 
@@ -28,6 +32,7 @@ export function BlackBox({ onNavigate, onLock }) {
   const [section, setSection] = useState('status')
   const [unlocked, setUnlocked] = useState(() => isUnlocked())
   const { bank } = useWordBank()
+  const toast = useToast()
 
   useEffect(() => {
     setUnlocked(isUnlocked())
@@ -52,6 +57,31 @@ export function BlackBox({ onNavigate, onLock }) {
     switch (section) {
       case 'words':
         return <WordManager />
+      case 'backend':
+        return (
+          <Panel annotated>
+            <PanelHeader
+              title="BACKEND LINK"
+              subtitle="Point online mode at any Supabase project at runtime — no rebuild, no redeploy, no config file editing."
+              right={<Badge tone="cyan">runtime config</Badge>}
+            />
+            <PanelBody>
+              <BackendPanel
+                onChanged={async (payload) => {
+                  if (payload.action === 'clear') {
+                    await forgetBackendConfig()
+                    toast.info('Backend values cleared')
+                    return { ok: true }
+                  }
+                  const result = await applyBackendConfig(payload.value)
+                  if (result.ok) toast.success('Backend connected')
+                  else toast.error(result.error || 'Those values were rejected')
+                  return result
+                }}
+              />
+            </PanelBody>
+          </Panel>
+        )
       case 'rooms':
         return <RoomManager />
       case 'settings':

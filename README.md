@@ -82,8 +82,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 50 rule/utility tests (roles, win conditions, validation, word bank, online tally math, error copy) |
-| `npm run test:ui` | 36-check UI smoke test: mounts the app in jsdom and **plays a full round end to end** |
+| `npm run test:engine` | 62 rule/utility tests (roles, win conditions, validation, word bank, online tally math, error copy, backend config resolution) |
+| `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
+| `npm run test:ui` | 67-check UI smoke test: mounts the app in jsdom, **plays a full round end to end**, verifies the boot failsafe and the backend-connect flow |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -304,8 +305,8 @@ node scripts/set-admin-password.mjs "your new passphrase"
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `VITE_SUPABASE_URL` | For online rooms | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | For online rooms | Public anon key |
+| `VITE_SUPABASE_URL` | Optional | Supabase project URL — **fallback only**; in-app settings and `runtime-config.json` take priority |
+| `VITE_SUPABASE_ANON_KEY` | Optional | Public anon key — same precedence |
 | `VITE_ROOM_TTL_MINUTES` | No (default `180`) | Idle lifetime for a room |
 | `VITE_BASE_PATH` | No (default `./`) | Absolute asset base, e.g. `/my-repo/` |
 
@@ -347,24 +348,67 @@ This is an honest description of a static client-side app.
 ```bash
 npm run test          # runs both suites back to back
 
-npm run test:engine   # 50 tests: role assignment, reveal lifecycle, timer, win conditions
+npm run test:engine   # 62 tests: role assignment, reveal lifecycle, timer, win conditions
                       # for both rulesets, illegal-move rejection, name/code/word validation,
                       # word-bank CRUD + import sanitising, online vote math and phase routing,
                       # user-facing error copy, plus a source scan proving the admin
                       # passphrase is not committed anywhere under src/
 
-npm run test:ui       # 36 checks: bundles the real app with esbuild, mounts it in jsdom and
+npm run test:ui       # 67 checks: bundles the real app with esbuild, mounts it in jsdom and
                       # plays a complete local round — deal → six reveals/hides → briefing →
                       # timer start/pause/reset → clues → secret ballot → tally → winner →
                       # play again — while also covering the splash hand-off, the hidden
                       # three-tap admin gesture, passphrase rejection/acceptance, the
-                      # eight-step tutorial, the settings screen and every route fallback
+                      # eight-step tutorial, the settings screen and every route fallback.
+                      # It also loads index.html in a raw DOM with no bundle attached and asserts
+                      # the boot failsafe explains itself instead of hanging on "LOADING" — the
+                      # exact symptom of a host serving the source tree instead of dist/
 ```
 
 The UI suite runs headless with no browser download — `jsdom` is the only extra dev dependency.
 
 The UI test bundles the actual application with esbuild, so a broken import, a render crash, a
 stuck phase transition or a broken route fails the run.
+
+---
+
+## Backend configuration (no rebuild, no re-deploy)
+
+Online rooms need a Supabase project. **You never have to edit code or rebuild to point the app at
+one** — the values are resolved at runtime, in this order:
+
+| # | Where | Best for | How |
+| --- | --- | --- | --- |
+| 1 | **In the app** | quickest, per device | Online Room → **Connect a backend**, or BLACK BOX → **BACKEND**. Paste the URL and anon key once; stored in that browser and applied immediately. |
+| 2 | **`runtime-config.json`** | one place for everyone | Lives next to `index.html` in `dist/`. Edit the two values on the host and every visitor picks it up — no rebuild, no redeploy. A `runtime-config.sample.json` is shipped alongside it. |
+| 3 | **Build variables** | a baked-in default | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` (`.env`, or CI secrets). Optional now — this is just a fallback. |
+
+First hit wins, so a value you paste in the app always overrides the published file, which overrides
+the build. Clearing the device values falls back down the chain.
+
+```jsonc
+// dist/runtime-config.json  (comments allowed; blanks fall through to the build values)
+{
+  "supabaseUrl": "https://abcdefghijklm.supabase.co",
+  "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...."
+}
+```
+
+**Safety rails built in**
+
+- The **service-role key is rejected** on paste, with an explanation — it bypasses all security and
+  must never reach a browser. A `SUPABASE_SERVICE_ROLE_KEY` reference in client code fails the
+  pre-deploy audit too.
+- Values are validated before saving: scheme, host shape, key length and JWT role. A URL pasted with
+  `/rest/v1` or a trailing slash is normalised; a bare project ref (`abcdefghijklm`) is expanded to
+  `https://abcdefghijklm.supabase.co`.
+- **Test connection** probes the rooms table with a throwaway client, so a typo can never break a
+  working setup. Nothing is saved until you press *Save & use*.
+- A `runtime-config.json` that is present but malformed is **ignored with a visible warning** in the
+  panel, never silently swallowed.
+- Only the project URL and anon key are ever read. No service-role key, ever.
+
+Run `supabase/schema.sql` once in the project and online rooms are live.
 
 ---
 
@@ -388,13 +432,17 @@ stuck phase transition or a broken route fails the run.
 
 | Symptom | Fix |
 | --- | --- |
-| “Online rooms need configuration” | Add `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` to `.env`, then restart the dev server / rebuild. |
+| “Connect a backend to play online” | Paste your project URL + anon key right there (or BLACK BOX → BACKEND). No rebuild needed. |
+| Values ignored after editing `runtime-config.json` | The panel says why — usually a placeholder left in, a missing value, or invalid JSON. In-app values outrank the file, so clear those if you meant to switch. |
+| “That is the service-role key” | Working as intended — use the anon / publishable key. The service-role key must never be in a browser. |
 | “The room database is not set up yet” | Run `supabase/schema.sql` in the SQL editor. |
 | Lobby never updates on other devices | Enable Realtime and make sure `imposter_rooms` is in the `supabase_realtime` publication. |
 | “That code contains a character we never use” | Room codes exclude `O I L 0 1 S Z 2 5` to avoid misreads — check the code again. |
 | “GAME IN PROGRESS” | You can only join a running game by reusing the same name (that is the reconnect path). |
 | Cloud word sync rejected | Expected: shared word writes require an authenticated Supabase session (RLS). |
-| Blank page after deploying to Pages | Confirm the workflow/branch uploaded the `dist/` **contents** (index.html at the root) and hard-refresh. |
+| Stuck on “LOADING” forever | The host is serving the **source tree**, not `dist/` — browsers refuse `.jsx` (wrong MIME type), so React never mounts. Set Pages → Source to **GitHub Actions**, or run `npm run deploy` and point Pages at the `gh-pages` branch. |
+| “IMPOSTER could not start” card | That is the built-in failsafe, not a crash. Expand **Diagnostics** in the card for the page URL, bundle path and service-worker state, then follow the fix it names. |
+| Blank page after deploying to Pages | Confirm the workflow/branch uploaded the `dist/` **contents** (index.html at the root) and hard-refresh. Run `npm run doctor` to audit the output before pushing. |
 | Refreshing a deep link 404s on another host | That host lacks the `404.html` fallback; Pages and the bundled `dist/404.html` handle it automatically. |
 
 ---

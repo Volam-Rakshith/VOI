@@ -20,7 +20,16 @@ import { sanitizeConfig } from '../../data/defaults.js'
 
 const ONLINE_LIMITS = { MIN_PLAYERS: 3, MAX_PLAYERS: 20, MAX_IMPOSTERS: 4 }
 
-export function OnlineSetup({ configured, busy = null, onSubmit, onQuickJoin = null, lastSession = null, defaultName = '' }) {
+export function OnlineSetup({
+  configured,
+  backend = null,
+  onConfigure = null,
+  busy = null,
+  onSubmit,
+  onQuickJoin = null,
+  lastSession = null,
+  defaultName = '',
+}) {
   const { bank } = useWordBank()
   const categories = categoryOptions(bank)
   const [tab, setTab] = useState(lastSession?.code ? 'join' : 'create')
@@ -41,14 +50,45 @@ export function OnlineSetup({ configured, busy = null, onSubmit, onQuickJoin = n
 
   if (!configured) {
     return (
-      <ErrorState
-        title="Online rooms need configuration"
-        message="This build ships backend-free. Add two public Supabase values (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY), run supabase/schema.sql, and online rooms switch on. Pass & play works right now, with nothing to configure."
-        tone="info"
-        action={<Badge tone="cyan">README → Configure Supabase</Badge>}
-      />
+      <div className="space-y-4">
+        <ErrorState
+          title="Connect a backend to play online"
+          message="Online rooms need a free Supabase project for sync. Paste two public values once — no rebuild, no redeploy, and nothing to edit in code. Pass & play works right now, with nothing to configure."
+          tone="info"
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="primary" size="sm" onClick={onConfigure}>
+                Connect a backend
+              </Button>
+              <Badge tone="cyan">takes ~2 minutes</Badge>
+            </div>
+          }
+        />
+        <InlineNotice tone="info">
+          You will need your <strong className="font-bold">Project URL</strong> and{' '}
+          <strong className="font-bold">anon key</strong> from Supabase → Project Settings → API, plus{' '}
+          <code className="font-mono text-[11.5px]">supabase/schema.sql</code> run once in the SQL editor. Alternatively,
+          edit <code className="font-mono text-[11.5px]">runtime-config.json</code> next to index.html, or set the two
+          build variables — every path is documented in the README.
+        </InlineNotice>
+      </div>
     )
   }
+
+  const backendRow = onConfigure ? (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-violet-400/15 bg-violet-500/[0.05] px-3.5 py-2.5">
+      <div className="min-w-0">
+        <p className="text-[10.5px] uppercase tracking-[0.22em] text-violet-200/50">Backend</p>
+        <p className="truncate font-mono text-[12px] text-violet-50/90">{backend?.host || 'configured'}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        {backend?.sourceLabel ? <Badge tone="cyan">{backend.sourceLabel}</Badge> : null}
+        <Button variant="quiet" size="sm" onClick={onConfigure}>
+          Change
+        </Button>
+      </div>
+    </div>
+  ) : null
 
   const validateName = () => {
     const result = validatePlayerName(name)
@@ -93,6 +133,8 @@ export function OnlineSetup({ configured, busy = null, onSubmit, onQuickJoin = n
 
   return (
     <div className="space-y-4">
+      {backendRow}
+
       <SegmentedControl
         options={[
           { value: 'join', label: 'Join room' },

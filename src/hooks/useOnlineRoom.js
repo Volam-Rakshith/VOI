@@ -18,8 +18,13 @@ import {
   createRoom as apiCreateRoom,
   fetchRoomRow,
   fetchSecret,
+  applyBackendConfig,
+  backendStatus,
+  forgetBackendConfig,
   friendlyRoomError,
   isConfigured,
+  refreshConfiguration,
+  testBackendConfig,
   joinRoom as apiJoinRoom,
   leaveRoom as apiLeaveRoom,
   patchRoom,
@@ -70,6 +75,49 @@ export function useOnlineRoom(bank) {
     setRoom(next)
     return next
   }, [])
+
+  /* ------------------------------------------------------------------ */
+  /* Backend configuration (runtime, no rebuild)                         */
+  /* ------------------------------------------------------------------ */
+  const [backend, setBackend] = useState(() => backendStatus())
+
+  const recheckBackend = useCallback(async () => {
+    await refreshConfiguration()
+    const next = backendStatus()
+    setBackend(next)
+    return next.configured
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    refreshConfiguration()
+      .then(() => {
+        if (alive) setBackend(backendStatus())
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  /**
+   * The single entry point UI panels use: save or clear values, then re-derive
+   * everything that depends on them (client, `configured` flag, status view).
+   */
+  const configureBackend = useCallback(
+    async ({ action, value } = {}) => {
+      let result
+      if (action === 'clear') {
+        await forgetBackendConfig()
+        const next = await recheckBackend()
+        return { ok: true, configured: next }
+      }
+      result = await applyBackendConfig(value || {})
+      const next = await recheckBackend()
+      return { ...result, configured: next }
+    },
+    [recheckBackend],
+  )
 
   const refreshRoom = useCallback(
     async (code) => {
@@ -728,7 +776,8 @@ export function useOnlineRoom(bank) {
   const isInRoom = Boolean(room && session.code)
 
   return {
-    configured: isConfigured(),
+    configured: backend.configured,
+    backend,
     session,
     room,
     secret,
@@ -754,6 +803,9 @@ export function useOnlineRoom(bank) {
       closeRoom,
       updateConfig,
       refresh: () => (session.code ? refreshRoom(session.code) : Promise.resolve(null)),
+      configureBackend,
+      testBackendConfig,
+      recheckBackend,
     },
   }
 }

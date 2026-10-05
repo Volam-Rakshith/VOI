@@ -8,7 +8,8 @@ import { bankStats } from '../../lib/wordBank.js'
 import { readAudit } from '../../lib/blackbox.js'
 import { hasStrongRandom } from '../../utils/random.js'
 import { storageAvailable } from '../../utils/storage.js'
-import { isConfigured } from '../../lib/onlineService.js'
+import { backendStatus, isConfigured } from '../../lib/onlineService.js'
+import { getSupabaseError } from '../../lib/supabase.js'
 
 const timeAgo = (ts) => {
   const seconds = Math.round((Date.now() - ts) / 1000)
@@ -41,7 +42,16 @@ export function SystemStatus({ bank }) {
     { label: 'Local storage', ok: storageAvailable(), detail: storageAvailable() ? 'read / write' : 'memory fallback' },
     { label: 'Strong RNG', ok: hasStrongRandom, detail: hasStrongRandom ? 'crypto.getRandomValues' : 'Math.random fallback' },
     { label: 'Network', ok: online, detail: online ? 'online' : 'offline' },
-    { label: 'Supabase rooms', ok: isConfigured(), detail: isConfigured() ? 'configured' : 'not configured' },
+    {
+      label: 'Supabase rooms',
+      ok: isConfigured(),
+      detail: (() => {
+        const status = backendStatus()
+        if (!status.configured) return 'not configured — see BACKEND'
+        if (getSupabaseError()) return `client unavailable: ${getSupabaseError().slice(0, 60)}`
+        return `${status.host} (${status.sourceLabel})`
+      })(),
+    },
   ]
 
   return (

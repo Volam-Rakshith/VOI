@@ -15,10 +15,15 @@ npm run dev       # → http://localhost:5173
 Optional but recommended before committing:
 
 ```bash
-npm run test:engine   # 50 rule/utility tests  → expect "50 passed, 0 failed"
-npm run test:ui       # 36 UI checks (plays a full round headless)
+npm run test:engine   # 62 rule/utility tests  → expect "62 passed, 0 failed"
+npm run test:ui       # 67 UI checks (full round + boot failsafe + backend connect flow)
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
+npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
 ```
+
+> **Never publish the repo root as a website.** `index.html` in the source tree is the Vite dev
+> entry (`/src/main.jsx`); browsers cannot execute it off a static host, which is what produced a
+> permanent "LOADING" screen. Publish `dist/` — via the Actions workflow or `npm run deploy`.
 
 ---
 
@@ -88,9 +93,24 @@ npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, i
 - [ ] "Lock Black Box now" returns to the menu and the route falls back to home
 - [ ] Confirm the passphrase appears nowhere in `src/` (grep it yourself — it should be a 64-char digest)
 
-## 6. Online rooms (needs the Supabase setup in README §5)
+## 5b. Connecting the backend (no rebuild)
 
-- [ ] Without env vars: Online Room shows the clear "needs configuration" card (no broken UI)
+- [ ] Online Room → **Connect a backend** opens the panel with both fields
+- [ ] Paste a URL without `https://` → normalised; a bare project ref → expanded to `*.supabase.co`
+- [ ] Paste the **service-role** key → refused with a security explanation, nothing saved
+- [ ] Paste a short or space-broken key → refused with a specific reason
+- [ ] **Test connection** against a bad project → friendly failure, nothing saved
+- [ ] **Save & use** with good values → CONNECTED banner, project host shown, Create/Join appears
+- [ ] Reload → still connected (values live in this browser)
+- [ ] BLACK BOX → BACKEND shows the same panel plus the source label (`this device` / `runtime-config.json` / `build environment`)
+- [ ] Edit `dist/runtime-config.json` on the host with real values → reload → the file is named as the source
+- [ ] Put a typo in that file → the panel says it was ignored, and why (never silent)
+- [ ] **Forget device values** → falls back to the file / build values
+- [ ] SYSTEM STATUS → Supabase row shows the host and its source
+
+## 6. Online rooms (needs Supabase running — any of the three ways above)
+
+- [ ] Without any configuration: Online Room shows the connect card (no broken UI)
 - [ ] After setup: Create room → 4-char code, copy invite link works
 - [ ] Join from a second device/browser with the code → appears in the lobby in < 2 s
 - [ ] Ready toggle syncs; host start button blocked until everyone is ready

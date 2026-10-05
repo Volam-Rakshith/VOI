@@ -29,7 +29,15 @@
  * less bullet-proof under simultaneous writes.
  */
 
-import { isOnlineConfigured, getSupabase, supabaseConfig } from './supabase.js'
+import { isOnlineConfigured, getSupabase, supabaseConfig, resetSupabaseClient, createProbeClient } from './supabase.js'
+import {
+  describeBackend,
+  ensureBackend,
+  getActiveBackend,
+  clearStoredBackend,
+  saveStoredBackend,
+  validateBackendConfig,
+} from './runtimeConfig.js'
 import { ROOM_STATUS } from '../data/constants.js'
 import { generateRoomCode, uid } from '../utils/random.js'
 import { nameKey, normalizeName, validatePlayerName, validateRoomCode } from '../utils/validate.js'
@@ -45,11 +53,65 @@ const MAX_RETRIES = 4
 
 const now = () => Date.now()
 
+/**
+ * True when a backend is usable right now. Synchronous, so render paths can
+ * call it directly; call `refreshConfiguration()` on mount to also pick up
+ * runtime-config.json.
+ */
 export function isConfigured() {
-  return isOnlineConfigured && Boolean(getSupabase())
+  return isOnlineConfigured() && Boolean(getSupabase())
 }
 
-function requireClient() {
+/** Resolve configuration (including the optional runtime file) and report. */
+export async function refreshConfiguration() {
+  await ensureBackend()
+  return isConfigured()
+}
+
+/** Where the current values came from — for status panels. */
+export const backendStatus = () => describeBackend()
+
+/**
+ * Save backend values on this device: takes effect immediately, no rebuild and
+ * no redeploy. Returns `{ ok, error? }` with player-friendly copy.
+ */
+export async function applyBackendConfig(input) {
+  const result = saveStoredBackend(input)
+  if (!result.ok) return result
+  resetSupabaseClient()
+  await ensureBackend()
+  return { ok: true, value: describeBackend() }
+}
+
+/** Forget device values and fall back to file / build configuration. */
+export async function forgetBackendConfig() {
+  clearStoredBackend()
+  resetSupabaseClient()
+  await ensureBackend()
+  return describeBackend()
+}
+
+/**
+ * Probe a candidate configuration without saving it, so a typo cannot break a
+ * working setup. Reports the same friendly codes as room operations.
+ */
+export async function testBackendConfig(input = null) {
+  const target = input ? validateBackendConfig(input) : { ok: true, value: getActiveBackend() }
+  if (!target.ok) return { ok: false, error: target.error }
+  const { url, anonKey } = target.value
+  if (!url || !anonKey) return { ok: false, error: 'Enter the project URL and the anon key first.' }
+  try {
+    const probe = createProbeClient(url, anonKey)
+    const { error } = await probe.from(supabaseConfig.table).select('code', { count: 'exact', head: true }).limit(1)
+    if (error) throw error
+    return { ok: true, detail: `Connected to ${new URL(url).host} — rooms table reachable.` }
+  } catch (error) {
+    return { ok: false, error: friendlyRoomError(classifyError(error)) }
+  }
+}
+
+async function requireClient() {
+  await ensureBackend()
   const client = getSupabase()
   if (!client) {
     const error = new Error('Online rooms are not configured')
@@ -202,7 +264,7 @@ const isExpired = (row) => {
 /* -------------------------------------------------------------------------- */
 
 export async function fetchRoomRow(code) {
-  const client = requireClient()
+  const client = await requireClient()
   const { data, error } = await client.from(supabaseConfig.table).select(PG_COLUMNS).eq('code', code).maybeSingle()
   if (error) throw classifyError(error)
   if (!data) fail('NOT_FOUND', `Room ${code} not found`)
@@ -223,7 +285,7 @@ export async function roomExists(code) {
 
 /** Lightweight active-room listing for the BLACK BOX dashboard. */
 export async function listActiveRooms(limit = 60) {
-  const client = requireClient()
+  const client = await requireClient()
   const { data, error } = await client
     .from(supabaseConfig.table)
     .select('code,status,host_id,player_count,created_at,updated_at,room')
@@ -270,7 +332,7 @@ async function callRpc(name, args) {
 
 /** Read → transform → write, with optimistic-concurrency retries. */
 async function mutateRoom(code, transform, extraRow = {}) {
-  const client = requireClient()
+  const client = await requireClient()
   let lastError = null
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     try {
@@ -314,7 +376,7 @@ async function mutateRoom(code, transform, extraRow = {}) {
  * @returns {Promise<{room: object, player: object}>}
  */
 export async function createRoom({ playerName, config }) {
-  const client = requireClient()
+  const client = await requireClient()
   const nameCheck = validatePlayerName(playerName)
   if (!nameCheck.ok) fail('INVALID_NAME', nameCheck.error)
 
@@ -519,7 +581,7 @@ export async function writeSecrets({ code, secrets, roomPatch = {}, status }) {
 
 /** Read just the secrets column for one player id. */
 export async function fetchSecret({ code, playerId }) {
-  const client = requireClient()
+  const client = await requireClient()
   const { data, error } = await client.from(supabaseConfig.table).select('secrets,room').eq('code', code).maybeSingle()
   if (error) throw classifyError(error)
   if (!data) fail('NOT_FOUND', 'Room not found')
@@ -550,7 +612,7 @@ export async function submitVote({ code, playerId, targetId, round }) {
 export async function terminateRoom(code) {
   const rpc = await callRpc('imposter_terminate_room', { p_code: code })
   if (rpc.ok) return true
-  const client = requireClient()
+  const client = await requireClient()
   const { error } = await client
     .from(supabaseConfig.table)
     .update({
@@ -565,7 +627,7 @@ export async function terminateRoom(code) {
 
 /** Close rooms that have not been touched for the configured TTL. */
 export async function sweepExpiredRooms() {
-  const client = requireClient()
+  const client = await requireClient()
   const { error } = await client
     .from(supabaseConfig.table)
     .update({ status: ROOM_STATUS.TERMINATED, updated_at: new Date().toISOString() })
@@ -629,14 +691,14 @@ export async function pingBackend() {
 /* -------------------------------------------------------------------------- */
 
 export async function fetchSharedWords() {
-  const client = requireClient()
+  const client = await requireClient()
   const { data, error } = await client.from(supabaseConfig.wordsTable).select('*')
   if (error) throw classifyError(error)
   return data || []
 }
 
 export async function pushSharedWords(payload) {
-  const client = requireClient()
+  const client = await requireClient()
   const { error } = await client.from(supabaseConfig.wordsTable).upsert({
     id: 'default',
     payload,
