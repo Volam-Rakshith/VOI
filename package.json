@@ -1,1 +1,32 @@
-{"name":"vote-out-imposter","scripts":{"test":"node tests/engine.test.js && node tests/room.test.js && node tests/ui.test.js","build":"node build.js"}}
+{
+  "name": "imposter-by-vr-developments",
+  "private": true,
+  "version": "1.0.0",
+  "description": "IMPOSTER - a cyberpunk social deduction party game by VR DEVELOPMENTS. Static, GitHub Pages ready.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:engine": "node scripts/engine-tests.mjs",
+    "test:ui": "node scripts/smoke-test.mjs",
+    "test": "npm run test:engine && npm run test:ui",
+    "set-admin-password": "node scripts/set-admin-password.mjs",
+    "deploy": "npm run build && node scripts/gh-pages-deploy.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "canvas-confetti": "^1.9.3",
+    "framer-motion": "^11.11.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "vite": "^5.4.10"
+  }
+}

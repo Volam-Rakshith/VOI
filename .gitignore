@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+dist-ssr/
+*.local
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# logs / editors / os
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# deploy helper temp
+.gh-pages-tmp/
+.smoke/
