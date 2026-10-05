@@ -1,0 +1,27 @@
+{
+  "name": "IMPOSTER — by VR DEVELOPMENTS",
+  "short_name": "IMPOSTER",
+  "description": "A cinematic social deduction party game for 2-20 players. Pass & play on one device, or spin up an online room.",
+  "start_url": "./index.html#/home",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0B001A",
+  "theme_color": "#0B001A",
+  "categories": ["games", "entertainment"],
+  "lang": "en",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

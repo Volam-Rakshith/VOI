@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5.0" />
+    <meta name="theme-color" content="#0B001A" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="IMPOSTER — a cinematic social deduction party game for 2-20 players. Pass & play on one device, or spin up an online room. By VR DEVELOPMENTS." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="IMPOSTER" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+    <link rel="apple-touch-icon" href="icons/icon.svg" />
+    <title>IMPOSTER — by VR DEVELOPMENTS</title>
+    <style>
+      /* Pre-hydration paint so users never see a white flash. */
+      html, body { margin: 0; background: #0B001A; }
+      body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+      #boot {
+        position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
+        background:
+          radial-gradient(1100px 640px at 50% -10%, rgba(124,58,237,.35), transparent 70%),
+          radial-gradient(900px 520px at 90% 110%, rgba(34,211,238,.16), transparent 70%),
+          #0B001A;
+        color: #E9D5FF; font: 600 13px/1.4 inherit; letter-spacing: .32em;
+        text-transform: uppercase; transition: opacity .4s ease; text-align: center;
+      }
+      #boot-label { display: block; animation: bootpulse 1.6s ease-in-out infinite; }
+      @keyframes bootpulse { 0%, 100% { opacity: .45 } 50% { opacity: 1 } }
+      @media (prefers-reduced-motion: reduce) { #boot-label { animation: none; opacity: .8 } }
+
+      /* Failsafe card — only exists if the bundle never took over. */
+      .boot-card {
+        max-width: 460px; width: 100%; text-transform: none; letter-spacing: normal;
+        border: 1px solid rgba(168,85,247,.35); border-radius: 20px; padding: 26px 22px;
+        background: linear-gradient(160deg, rgba(24,6,48,.92), rgba(11,0,26,.94));
+        box-shadow: 0 0 0 1px rgba(255,255,255,.03) inset, 0 24px 60px rgba(0,0,0,.55);
+        text-align: left;
+      }
+      .boot-kicker { font-size: 11px; letter-spacing: .34em; text-transform: uppercase; color: #C084FC; margin: 0 0 10px; }
+      .boot-title { font-size: 20px; font-weight: 800; letter-spacing: .02em; color: #F5E9FF; margin: 0 0 10px; line-height: 1.25; }
+      .boot-body { font-size: 13.5px; line-height: 1.6; color: #CBB6E8; margin: 0 0 16px; letter-spacing: .01em; font-weight: 500; }
+      .boot-body code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+        background: rgba(168,85,247,.16); border: 1px solid rgba(168,85,247,.28);
+        border-radius: 6px; padding: 1px 5px; color: #E9D5FF; word-break: break-all;
+      }
+      .boot-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+      .boot-btn {
+        -webkit-appearance: none;
+           -moz-appearance: none;
+                appearance: none; cursor: pointer; border-radius: 12px; padding: 12px 18px;
+        font: 700 12.5px/1 inherit; letter-spacing: .1em; text-transform: uppercase;
+        border: 1px solid rgba(168,85,247,.4); background: rgba(168,85,247,.16); color: #F5E9FF;
+        min-height: 44px;
+      }
+      .boot-btn.primary {
+        background: linear-gradient(120deg, #7C3AED, #D946EF); border-color: transparent;
+        box-shadow: 0 8px 26px rgba(217,70,239,.35);
+      }
+      .boot-btn:focus-visible { outline: 2px solid #22D3EE; outline-offset: 2px; }
+      .boot-diag { margin-top: 16px; font-size: 12px; color: #A78BC9; font-weight: 500; }
+      .boot-diag summary { cursor: pointer; letter-spacing: .06em; text-transform: uppercase; font-size: 11px; color: #C084FC; padding: 6px 0; }
+      .boot-diag ul { margin: 8px 0 0; padding-left: 16px; line-height: 1.7; }
+      .boot-diag code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; word-break: break-all; color: #E9D5FF; }
+    </style>
+    <script>
+      /* Boot telemetry: dependency-free, runs before any bundle code.
+         Records failed sub-resources so a stuck start can explain itself. */
+      (function () {
+        var boot = { ready: false, error: null, started: Date.now() };
+        window.__IMPOSTER_BOOT__ = boot;
+        window.addEventListener(
+          'error',
+          function (event) {
+            var el = event && event.target;
+            if (el && el.tagName === 'SCRIPT') boot.error = 'Script failed to load: ' + (el.src || '(inline)');
+            else if (el && el.tagName === 'LINK') boot.error = 'Stylesheet failed to load: ' + (el.href || '(unknown)');
+          },
+          true,
+        );
+        window.addEventListener('unhandledrejection', function (event) {
+          if (!boot.error && event && event.reason) {
+            boot.error = 'Startup error: ' + (event.reason.message || String(event.reason));
+          }
+        });
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-DIQpMykm.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/motion-BxUgTOuD.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-Jt3exzPx.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-D5Hmeugb.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="boot" role="status" aria-live="polite"><span id="boot-label">Loading</span></div>
+    <script>
+      /* Failsafe: if React never takes over, say so and offer a way out.
+         A dead "LOADING" screen is never an acceptable end state. */
+      (function () {
+        var boot = window.__IMPOSTER_BOOT__ || (window.__IMPOSTER_BOOT__ = { ready: false, error: null });
+        var GRACE_MS = 2000;
+        var FAILSAFE_MS = 9000;
+        var shown = false;
+
+        function diagnose() {
+          if (boot.error) return boot.error;
+          if (location.protocol === 'file:') {
+            return 'This page was opened straight from disk. Browsers refuse to run module scripts over file:// — start it with npm run dev (or npm run preview) and open the localhost address it prints.';
+          }
+          if (location.protocol === 'blob:' || location.protocol === 'data:') {
+            return 'This page is running inside a sandboxed preview pane, which cannot load the app bundle. Open the real URL instead.';
+          }
+          return 'The application bundle did not finish loading. This usually means the site is serving the source folder instead of the built dist folder — on GitHub Pages, set Settings → Pages → Source to "GitHub Actions", or run npm run dev locally.';
+        }
+
+        function scriptTagReport() {
+          var tags = document.querySelectorAll('script[type="module"][src]');
+          if (!tags.length) return 'none found in HTML';
+          var out = [];
+          for (var i = 0; i < tags.length; i++) out.push(tags[i].getAttribute('src'));
+          return out.join(', ');
+        }
+
+        function swReport() {
+          if (!navigator.serviceWorker) return 'unsupported';
+          if (navigator.serviceWorker.controller) return 'active (controlling this page)';
+          return 'registered, not controlling';
+        }
+
+        function esc(s) {
+          return String(s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        }
+
+        function showCard() {
+          if (shown || boot.ready) return;
+          var host = document.getElementById('boot');
+          if (!host) return;
+          shown = true;
+          var reason = diagnose();
+          host.innerHTML =
+            '<div class="boot-card">' +
+            '<p class="boot-kicker">VR DEVELOPMENTS</p>' +
+            '<h1 class="boot-title">IMPOSTER could not start</h1>' +
+            '<p class="boot-body">' + esc(reason) + '</p>' +
+            '<div class="boot-actions">' +
+            '<button class="boot-btn primary" id="boot-retry" type="button">Try again</button>' +
+            '<button class="boot-btn" id="boot-fresh" type="button">Clear cache &amp; reload</button>' +
+            '</div>' +
+            '<details class="boot-diag"><summary>Diagnostics</summary><ul>' +
+            '<li>Page: <code>' + esc(location.href) + '</code></li>' +
+            '<li>Bundle: <code>' + esc(scriptTagReport()) + '</code></li>' +
+            '<li>Service worker: <code>' + esc(swReport()) + '</code></li>' +
+            '<li>Reported: <code>' + esc(boot.error || 'no resource error detected') + '</code></li>' +
+            '</ul></details>' +
+            '</div>';
+
+          var retry = document.getElementById('boot-retry');
+          if (retry) retry.addEventListener('click', function () { location.reload(); });
+
+          var fresh = document.getElementById('boot-fresh');
+          if (fresh) {
+            fresh.addEventListener('click', function () {
+              fresh.disabled = true;
+              var done = function () {
+                var url = location.href.split('#')[0] + '?fresh=' + Date.now() + location.hash;
+                location.replace(url);
+              };
+              try {
+                if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                  navigator.serviceWorker.getRegistrations().then(function (regs) {
+                    return Promise.all(regs.map(function (r) { return r.unregister(); }));
+                  }).then(function () {
+                    return window.caches && caches.keys ? caches.keys().then(function (keys) {
+                      return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                    }) : null;
+                  }).then(done, done);
+                } else {
+                  done();
+                }
+              } catch (err) {
+                done();
+              }
+            });
+          }
+        }
+
+        function check() { if (!boot.ready) showCard(); }
+        function schedule() { setTimeout(check, GRACE_MS); }
+
+        if (document.readyState === 'complete') schedule();
+        else window.addEventListener('load', schedule);
+        setTimeout(check, FAILSAFE_MS);
+      })();
+    </script>
+  </body>
+</html>

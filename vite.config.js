@@ -24,11 +24,16 @@ const basePath = process.env.VITE_BASE_PATH || './'
  * boot the app instead of showing GitHub's default 404 page.
  */
 function pagesFallback() {
+  /** Resolved in configResolved so a custom --outDir (e.g. docs/) is honoured. */
+  let outDir = 'dist'
   return {
     name: 'imposter-pages-fallback',
     apply: 'build',
+    configResolved(config) {
+      outDir = config.build.outDir
+    },
     closeBundle() {
-      const dist = resolve(process.cwd(), 'dist')
+      const dist = resolve(process.cwd(), outDir)
       const index = resolve(dist, 'index.html')
       if (existsSync(index)) {
         copyFileSync(index, resolve(dist, '404.html'))

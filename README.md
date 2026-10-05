@@ -237,23 +237,67 @@ Rooms auto-expire: if the atomic RPCs are present, every write extends the room'
 
 ## Deploying to GitHub Pages
 
+> **Pick ONE source and stick to it.** Pages has two independent deploy mechanisms, and the wrong
+> combination fails silently: the branch publisher copies the **repository root** (source:
+> `index.html`, `src/`, `package.json`) on every push and *overwrites* what the Actions workflow
+> published. The browser then gets `index.html` asking for `/src/main.jsx`, refuses to execute `.jsx`
+> (wrong MIME type), and the app never boots.
+>
+> **How to spot it:** the page shows the "IMPOSTER could not start" card, and these return HTTP 200 —
+> `https://user.github.io/repo/src/main.jsx` and `.../package.json`.
+> **Fix:** Settings → Pages → Source must be **GitHub Actions** (Option A), never *Deploy from a
+> branch → /(root)* while the workflow also runs.
+
 ### Option A — GitHub Actions (recommended)
 
 1. Push this repository to GitHub.
-2. **Settings → Pages → Source: GitHub Actions.**
-3. Add repository secrets (optional, only for online mode):
-   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` → *Settings → Secrets and variables → Actions*.
-4. Push to `main` (or run the workflow manually). The workflow runs the engine tests, builds,
-   and publishes `dist/`.
+2. **Settings → Pages → Source: GitHub Actions.** ← this is what stops the branch publisher from
+   clobbering the deploy. Change it *before* re-running the workflow.
+3. Optional (online mode): add `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` under
+   *Settings → Secrets and variables → Actions*. Not required — you can paste values in the app or
+   edit `runtime-config.json` instead (see *Backend configuration*).
+4. Push to `main`, or **Actions → Deploy IMPOSTER to GitHub Pages → Run workflow**.
 
-### Option B — from your machine
+If the **deploy** job sits on `queued` while the build job succeeded, open the run and either approve
+the pending `github-pages` deployment (**Review deployments**) or re-run the job. That queue is
+GitHub waiting on the Pages environment — it is not a build problem.
+
+### Option B — commit the build to `/docs` (no Actions at all)
+
+The most bulletproof path: branch deploys cannot be blocked by permissions, environment approvals or
+concurrency.
+
+```bash
+npm run build:docs        # builds into docs/ instead of dist/
+npm run doctor -- --dir docs
+git add docs && git commit -m "build" && git push
+```
+
+Then **Settings → Pages → Source: Deploy from a branch → `main` → `/docs`**. Pages serves that
+folder as the site root, so the app lives at `https://user.github.io/repo/`.
+
+Re-run `npm run build:docs` and commit whenever the source changes — the deployed copy is a
+snapshot. A **prebuilt `docs/` folder ships in the release archive**, so the first deploy needs no
+local tooling at all.
+
+### Option C — push the build to a `gh-pages` branch
 
 ```bash
 npm run deploy
 ```
 
-This builds `dist/`, commits it to a `gh-pages` branch and pushes. Then set
+Builds `dist/`, commits it to a `gh-pages` branch and pushes. Then set
 **Settings → Pages → Deploy from a branch → `gh-pages` / root**.
+
+### Verifying a deploy
+
+```bash
+npm run doctor            # audits dist/   (or: npm run doctor -- --dir docs)
+```
+
+Then in the browser: no `/assets/...` 404s, the menu appears, and refreshing a deep link
+(`#/settings`) still boots the app. Seeing an old version? Hard-refresh once (**Ctrl+Shift+R**) — a
+service worker from a previous deploy can hold a cached page.
 
 ### Why it works under `/repository-name/`
 
@@ -440,7 +484,9 @@ Run `supabase/schema.sql` once in the project and online rooms are live.
 | “That code contains a character we never use” | Room codes exclude `O I L 0 1 S Z 2 5` to avoid misreads — check the code again. |
 | “GAME IN PROGRESS” | You can only join a running game by reusing the same name (that is the reconnect path). |
 | Cloud word sync rejected | Expected: shared word writes require an authenticated Supabase session (RLS). |
-| Stuck on “LOADING” forever | The host is serving the **source tree**, not `dist/` — browsers refuse `.jsx` (wrong MIME type), so React never mounts. Set Pages → Source to **GitHub Actions**, or run `npm run deploy` and point Pages at the `gh-pages` branch. |
+| Stuck on “LOADING” forever | The host is serving the **source tree**, not the built site — browsers refuse `.jsx` (wrong MIME type), so React never mounts. Set Pages → Source to **GitHub Actions**, or point it at the `/docs` folder. |
+| The site reverts to source after each push | Pages is set to *Deploy from a branch → /(root)* **and** the workflow runs. The branch publisher wins every push. Switch Pages → Source to **GitHub Actions**, or move to the `/docs` option and stop using Actions. |
+| Workflow `deploy` job stuck on `queued` | The build succeeded; GitHub is waiting on the Pages environment. Open the run → **Review deployments → Approve**, or re-run the job after setting Pages → Source to GitHub Actions. |
 | “IMPOSTER could not start” card | That is the built-in failsafe, not a crash. Expand **Diagnostics** in the card for the page URL, bundle path and service-worker state, then follow the fix it names. |
 | Blank page after deploying to Pages | Confirm the workflow/branch uploaded the `dist/` **contents** (index.html at the root) and hard-refresh. Run `npm run doctor` to audit the output before pushing. |
 | Refreshing a deep link 404s on another host | That host lacks the `404.html` fallback; Pages and the bundled `dist/404.html` handle it automatically. |

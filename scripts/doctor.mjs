@@ -14,8 +14,12 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+/** `npm run doctor -- --dir docs` audits a non-default output folder. */
+const dirArgIndex = process.argv.findIndex((a) => a === '--dir')
+const outDirName = dirArgIndex !== -1 && process.argv[dirArgIndex + 1] ? process.argv[dirArgIndex + 1] : 'dist'
+
 const root = resolve(process.cwd())
-const dist = join(root, 'dist')
+const dist = join(root, outDirName)
 
 let failures = 0
 let warnings = 0
@@ -34,7 +38,7 @@ const section = (title) => console.log(`\n\u001b[35m${title}\u001b[0m`)
 /* ── 1. The build exists ──────────────────────────────────────────────────── */
 section('BUILD OUTPUT')
 if (!existsSync(dist)) {
-  fail('dist/ is missing', 'Run: npm run build')
+  fail(`${outDirName}/ is missing`, outDirName === 'docs' ? 'Run: npm run build:docs' : 'Run: npm run build')
   console.log('\n\u001b[31mCannot continue without a build.\u001b[0m\n')
   process.exit(1)
 }

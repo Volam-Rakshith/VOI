@@ -1,0 +1,6 @@
+{
+  "_comment": "Runtime backend configuration. Edit the two values and redeploy ONLY this file (or set them in the app: Online Room -> Connect a backend). Empty values fall back to build-time VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.",
+
+  "supabaseUrl": "",
+  "supabaseAnonKey": ""
+}

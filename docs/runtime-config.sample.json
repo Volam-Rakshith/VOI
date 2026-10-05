@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy this file to runtime-config.json (same folder as index.html) to point the game at a Supabase project WITHOUT rebuilding. Leave the values empty (or delete the file) to fall back to build-time variables or in-app settings.",
+
+  "supabaseUrl": "https://YOUR-PROJECT-REF.supabase.co",
+  "supabaseAnonKey": "YOUR-ANON-PUBLIC-KEY"
+}

@@ -5,7 +5,19 @@ anything that fails, note the **device + browser + step** and I'll fix it.
 
 ---
 
-## 0. Setup (2 commands)
+## 0. If the site is broken right now
+
+Run this single command (replace with your URL) — it tells you instantly which failure you have:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://<user>.github.io/<repo>/src/main.jsx
+```
+
+- **200** → Pages is serving your **source tree**. Set Pages → Source to **GitHub Actions** (or the
+  `/docs` folder). See section 7.
+- **404** with a working menu → you're serving the build correctly.
+
+## 0b. Setup (2 commands)
 
 ```bash
 npm ci            # or: npm install
@@ -128,12 +140,26 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 
 ## 7. Deployment
 
+**Read this before debugging a blank page:** Pages has two deploy mechanisms. If **Settings → Pages →
+Source** is *Deploy from a branch → /(root)* while the workflow also runs, the branch publisher wins
+on every push and serves your **source tree**. The app then dies on `/src/main.jsx` (browsers refuse
+`.jsx`). One-line check — if this returns 200, you are serving source:
+
+```
+https://<user>.github.io/<repo>/src/main.jsx
+```
+
 - [ ] `npm run build` produces `dist/` with `index.html`, `404.html`, `.nojekyll`, `assets/`, `sw.js`, `icons/`
+- [ ] `npm run build:docs` produces the same into `docs/` (the no-Actions deploy path)
+- [ ] `npm run doctor` (or `-- --dir docs`) reports **Deployable**
 - [ ] `npm run preview` → game works from the built bundle
-- [ ] Push to GitHub, enable Pages (Actions) → site loads at `username.github.io/repo/`
-- [ ] Deep link `…#/lobby?room=TEST` and refresh → app boots (no 404)
-- [ ] CSS/JS load with **no** `/assets/...` 404s in the Network tab
-- [ ] Change the repo name → still works (relative paths) or rebuild with `VITE_BASE_PATH=/new-repo/`
+- [ ] **Settings → Pages → Source = GitHub Actions** (not "Deploy from a branch / (root)")
+- [ ] Actions run: build job green, **deploy** job green (if it sits on `queued`, approve or re-run it)
+- [ ] `…/src/main.jsx` now returns **404** ← proof you are serving the build, not the source
+- [ ] `…/assets/` loads with no 404s in the Network tab; menu appears; no console errors
+- [ ] Deep link `…#/lobby?room=TEST` then refresh → app boots
+- [ ] Ctrl+Shift+R shows the current build (a stale service worker can hold the old page)
+- [ ] Rename the repo → still works (relative paths) or rebuild with `VITE_BASE_PATH=/new-repo/`
 
 ---
 
