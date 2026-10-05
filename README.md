@@ -18,3 +18,7 @@ Share that link; works on phones. Update by re-uploading a changed index.html.
 5. Every player opens the game → Play online → pastes URL + anon key (saved on their device) → Create/Join room.
 Note: state is kept by polling every 1.5 s through the function, so roles/votes are delivered only to the
 player holding the matching token. Not yet live-tested against a real Supabase project.
+
+## Keys: set once in config.js
+Edit `config.js` in the repo root: put your Supabase Project URL and anon PUBLIC key there and commit. Players never paste anything. No .env is needed on the website (a static site can't read one); the edge function gets its own secrets from Supabase automatically.
+Also run `supabase/migrations/002_version.sql` and redeploy the function (`supabase functions deploy game --no-verify-jwt`).
