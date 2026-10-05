@@ -1,0 +1,7 @@
+:root{--g:#0b3d1e;--g2:#17a34a;--r:#e11d2e}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#14532d,#04170b);color:#eafff0;font:18px system-ui,sans-serif;min-height:100vh;display:flex;justify-content:center}
+#app{width:100%;max-width:480px;padding:20px;text-align:center}h1{font-size:2rem}.r{color:var(--r);text-shadow:0 0 12px var(--r)}
+button,textarea,input{width:100%;margin:8px 0;padding:16px;min-height:52px;border-radius:14px;border:2px solid var(--g2);background:#052e16;color:#fff;font:inherit}input[type=checkbox]{width:auto;min-height:0}label{display:block;text-align:left}
+button{background:var(--g2);color:#032;font-weight:700;cursor:pointer;transition:transform .15s}button:active{transform:scale(.96)}.ghost{background:transparent;color:#bbf7d0}.danger{border-color:var(--r);color:var(--r)}
+.card{background:#052e16;border:3px solid var(--g2);border-radius:20px;padding:24px;margin:12px 0;animation:pop .5s}.big{display:block;font-size:2.4rem}.card .r{font-size:2rem;animation:pulse 1s infinite}
+@keyframes pop{from{transform:scale(.7) rotate(-4deg);opacity:0}}@keyframes pulse{50%{opacity:.5}}.note{font-size:.7rem;opacity:.7;margin-top:20px}.foot{margin-top:16px}
+.calm *{animation:none!important;transition:none!important}

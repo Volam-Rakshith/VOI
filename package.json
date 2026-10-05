@@ -1,0 +1,1 @@
+{"name":"vote-out-imposter","scripts":{"test":"node tests/engine.test.js && node tests/room.test.js","build":"node build.js"}}

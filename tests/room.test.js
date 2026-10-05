@@ -1,0 +1,13 @@
+const R=require('../src/room.js'),V=require('../src/engine.js'),a=require('assert');let n=0,A=(...x)=>{a(...x);n++},t=(m,f)=>{f();console.log('ok',m)};
+const mk=k=>{const c=R.create('P0'),r=c.room,T=[c.token];for(let i=1;i<k;i++)T.push(R.join(r,'P'+i));return{r,T}};
+t('code alphabet',()=>{for(let i=0;i<200;i++){const c=R.create('x').room.code;A(c.length===6&&!/[0OIL1Z2S5B8]/.test(c))}});
+t('join rules',()=>{const{r,T}=mk(3);a.throws(()=>R.join(r,'p1'));a.throws(()=>R.start(r,T[1],1));R.start(r,T[0],1);a.throws(()=>R.join(r,'late'));A(true)});
+t('public state never leaks',()=>{const{r,T}=mk(4);R.start(r,T[0],1);const s=JSON.stringify(R.pub(r));A(!s.includes(r.round.word)&&!s.includes('imposter')&&!s.includes('"roles"')&&!s.includes(T[0]));R.advance(r,T[0]);R.vote(r,T[1],'P2');A(!JSON.stringify(R.pub(r)).includes('P2"')||!R.pub(r).votes)});
+t('private view',()=>{const{r,T}=mk(4);R.start(r,T[0],1);r.round.players.forEach((p,i)=>{const m=R.me(r,T[i]);A(m.role==='innocent'?m.word===r.round.word&&!m.hint:!m.word&&!!m.hint)})});
+t('vote rules',()=>{const{r,T}=mk(4);R.start(r,T[0],1);a.throws(()=>R.vote(r,T[1],'P2'));R.advance(r,T[0]);a.throws(()=>R.vote(r,T[1],'P1'));R.vote(r,T[1],'P2');a.throws(()=>R.vote(r,T[1],'P2'));A(true)});
+t('catch imposter then guess',()=>{const{r,T}=mk(4);R.start(r,T[0],1);const imp=r.players.find(p=>r.round.roles[p.name]==='imposter').name;R.advance(r,T[0]);r.players.forEach(p=>R.vote(r,p.token,p.name===imp?'P0'===imp?'P1':'P0':imp));A(r.phase==='guess'&&r.msg.includes('IMPOSTER'));const tk=r.players.find(p=>p.name===imp).token;a.throws(()=>R.guess(r,T[0]===tk?T[1]:T[0],'x'));R.guess(r,tk,r.round.word);A(r.phase==='result'&&r.win==='imposters')});
+t('wrong guess innocents win',()=>{const{r,T}=mk(4);R.start(r,T[0],1);const imp=r.players.find(p=>r.round.roles[p.name]==='imposter');R.advance(r,T[0]);r.players.forEach(p=>R.vote(r,p.token,p.name===imp.name?(imp.name==='P0'?'P1':'P0'):imp.name));R.guess(r,imp.token,'zzz');A(r.win==='innocents'&&R.pub(r).reveal.word===r.round.word)});
+t('parity win',()=>{const{r,T}=mk(3);R.start(r,T[0],1);const imp=r.players.find(p=>r.round.roles[p.name]==='imposter').name,inn=r.players.map(p=>p.name).filter(x=>x!==imp)[0];R.advance(r,T[0]);r.players.forEach(p=>R.vote(r,p.token,p.name===inn?imp:inn));A(r.win==='imposters')});
+t('tie then revote then none',()=>{const{r,T}=mk(4);R.start(r,T[0],1);R.advance(r,T[0]);['P1','P0','P3','P2'].forEach((v,i)=>R.vote(r,T[i],v));A(r.restrict&&r.restrict.length===4&&r.phase==='discussion')});
+t('play again',()=>{const{r,T}=mk(3);R.start(r,T[0],1);r.phase='result';const w=r.round.word;R.start(r,T[0],1);A(r.round.word!==w&&r.phase==='discussion')});
+console.log(n+' assertions passed');

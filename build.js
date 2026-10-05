@@ -1,0 +1,4 @@
+const f=require('fs'),r=p=>f.readFileSync(__dirname+'/'+p,'utf8'),d=__dirname+'/supabase/functions/game/';
+f.writeFileSync(__dirname+'/index.html',`<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Vote Out Imposter</title><style>${r('src/style.css')}</style></head><body><div id=app></div><script>${r('src/engine.js')}</script><script>${r('src/app.js')}</script><script>${r('src/online.js')}</script></body></html>`);
+f.writeFileSync(d+'engine.mjs',r('src/engine.js')+'\nexport default globalThis.VOI;');
+f.writeFileSync(d+'room.mjs',"import './engine.mjs';\n"+r('src/room.js').replace("require('./engine.js')","null").replace("require('crypto').webcrypto","null")+'\nexport default globalThis.VOIROOM;');console.log('built');

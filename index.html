@@ -1,0 +1,106 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Vote Out Imposter</title><style>:root{--g:#0b3d1e;--g2:#17a34a;--r:#e11d2e}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#14532d,#04170b);color:#eafff0;font:18px system-ui,sans-serif;min-height:100vh;display:flex;justify-content:center}
+#app{width:100%;max-width:480px;padding:20px;text-align:center}h1{font-size:2rem}.r{color:var(--r);text-shadow:0 0 12px var(--r)}
+button,textarea,input{width:100%;margin:8px 0;padding:16px;min-height:52px;border-radius:14px;border:2px solid var(--g2);background:#052e16;color:#fff;font:inherit}input[type=checkbox]{width:auto;min-height:0}label{display:block;text-align:left}
+button{background:var(--g2);color:#032;font-weight:700;cursor:pointer;transition:transform .15s}button:active{transform:scale(.96)}.ghost{background:transparent;color:#bbf7d0}.danger{border-color:var(--r);color:var(--r)}
+.card{background:#052e16;border:3px solid var(--g2);border-radius:20px;padding:24px;margin:12px 0;animation:pop .5s}.big{display:block;font-size:2.4rem}.card .r{font-size:2rem;animation:pulse 1s infinite}
+@keyframes pop{from{transform:scale(.7) rotate(-4deg);opacity:0}}@keyframes pulse{50%{opacity:.5}}.note{font-size:.7rem;opacity:.7;margin-top:20px}.foot{margin-top:16px}
+.calm *{animation:none!important;transition:none!important}
+</style></head><body><div id=app></div><script>(function(g){
+const rng=s=>()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const WORDS={
+Food:{pizza:'cheese',sushi:'rice',burger:'bun',mango:'summer',biryani:'spice',noodles:'chopsticks',chocolate:'sweet',popcorn:'movie'},
+Animals:{elephant:'trunk',penguin:'ice',tiger:'stripes',dolphin:'ocean',camel:'desert',owl:'night',monkey:'banana',eagle:'sky'},
+Transport:{bicycle:'pedal',train:'platform',airplane:'cloud',rickshaw:'city',submarine:'deep',scooter:'helmet',ship:'harbour',metro:'underground'},
+Technology:{laptop:'keyboard',robot:'metal',camera:'photo',drone:'buzz',router:'wifi',headphones:'music',satellite:'orbit',charger:'battery'},
+Sports:{cricket:'bat',football:'goal',badminton:'shuttle',chess:'strategy',swimming:'pool',hockey:'stick',kabaddi:'raid',tennis:'court'},
+Places:{beach:'sand',library:'quiet',airport:'queue',temple:'bell',hospital:'white',market:'bargain',stadium:'crowd',museum:'history'},
+Festivals:{diwali:'lights',holi:'colours',christmas:'gifts',eid:'feast',pongal:'harvest',birthday:'cake',wedding:'garland',halloween:'costume'},
+Household:{pillow:'sleep',mirror:'reflection',broom:'dust',curtain:'window',umbrella:'rain',candle:'wax',blanket:'winter',clock:'tick'},
+'Famous Characters':{doraemon:'gadget',sherlock:'detective',batman:'cape','chhota bheem':'laddu',pikachu:'electric',mickey:'cartoon'},
+'Our Crew':{rakshith:'developer',sunil:'friend',rvbanr:'gang','vr developments':'startup',volam:'brand',sits:'college',flutter:'mobile',firebase:'database',groq:'speed',portfolio:'showcase',github:'repository'}};
+const ok=(w,h)=>{w=w.toLowerCase();h=h.toLowerCase();return !!h&&h!==w&&!w.includes(h)&&!h.includes(w)&&w.slice(0,3)!==h.slice(0,3)&&!w.split(/\W+/).some(t=>h.split(/\W+/).includes(t))};
+const pool=(cats)=>{const o=[];for(const c of cats||Object.keys(WORDS))for(const w in WORDS[c])if(ok(w,WORDS[c][w]))o.push({word:w,hint:WORDS[c][w],cat:c});return o};
+function validate(n,players){if(!Number.isInteger(n)||n<1)throw new Error('Need at least 1 imposter');if(n>=players)throw new Error('Imposters must be fewer than players');if(players<3||players>20)throw new Error('3–20 players required');return n}
+function newRound(players,o,used){const seed=o.seed??(Math.random()*2**31)|0,r=rng(seed);validate(o.imposters,players.length);
+ let p=pool(o.cats).filter(x=>!(used||[]).includes(x.word));let reset=false;if(!p.length){if(!pool(o.cats).length)throw new Error('Empty word pool');p=pool(o.cats);reset=true}
+ const w=p[Math.floor(r()*p.length)],idx=players.map((_,i)=>i).sort(()=>r()-.5).slice(0,o.imposters);
+ const roles={};players.forEach((n,i)=>roles[n]=idx.includes(i)?'imposter':'innocent');
+ return{players:[...players],roles,word:w.word,hint:o.hints===false?null:w.hint,cat:w.cat,active:[...players],cycle:0,guessing:o.guessing!==false,reset}}
+function resolveVotes(active,votes,restrict){const c={};active.forEach(a=>{const t=votes[a];if(t&&active.includes(t)&&(!restrict||restrict.includes(t)))c[t]=(c[t]||0)+1});
+ const m=Math.max(0,...Object.values(c));if(!m)return{out:null,tied:[],counts:c};const l=Object.keys(c).filter(k=>c[k]===m);return l.length>1?{out:null,tied:l,counts:c}:{out:l[0],tied:[],counts:c}}
+const cnt=s=>({imp:s.active.filter(p=>s.roles[p]==='imposter').length,inn:s.active.filter(p=>s.roles[p]==='innocent').length});
+function eliminate(s,name){s.active=s.active.filter(p=>p!==name);const{imp,inn}=cnt(s);
+ if(imp>=inn&&imp>0)return'imposters';
+ if(s.roles[name]==='imposter'&&s.guessing)return'guess';
+ return imp===0?'innocents':'continue'}
+function guess(s,text){if(String(text).trim().toLowerCase()===s.word)return'imposters';const{imp}=cnt(s);return imp===0?'innocents':'continue'}
+g.VOI={WORDS,ok,pool,validate,newRound,resolveVotes,eliminate,guess,cnt,MAX_CYCLES:5};
+if(typeof module!=='undefined')module.exports=g.VOI;
+})(typeof globalThis!=='undefined'?globalThis:this);
+</script><script>const $=document.getElementById('app'),K='voi-save';let S=JSON.parse(localStorage.getItem(K)||'null'),U={};
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}},h=(t,c='')=>`<div class="${c}">${t}</div>`,btn=(l,f,c='')=>`<button class="${c}" onclick="${f}">${l}</button>`;
+const go=p=>{S.ph=p;save();R()};
+window.go=go;
+window.start=()=>{try{const names=document.getElementById('nm').value.split(/[\n,]/).map(x=>x.trim()).filter(Boolean);if(new Set(names).size!==names.length)throw new Error('Names must be unique');
+ const o={imposters:+document.getElementById('ni').value,guessing:document.getElementById('gs').checked,hints:document.getElementById('hn').checked};
+ const r=VOI.newRound(names,o,[]);S={...r,o,ph:'reveal',i:0,votes:{},vi:0,shown:false,msg:''};save();R()}catch(e){alert(e.message)}};
+window.next=()=>{S.shown=false;S.i++;S.i>=S.players.length?go('talk'):(save(),R())};
+window.show=()=>{S.shown=true;R()};
+window.vote=t=>{S.votes[S.active[S.vi]]=t;S.vi++;S.vi>=S.active.length?finish():(save(),R())};
+function finish(){const r=VOI.resolveVotes(S.active,S.votes,S.restrict);S.cycle++;S.restrict=null;S.votes={};S.vi=0;
+ if(r.tied.length>1&&!S.revoted){S.revoted=true;S.restrict=r.tied;S.msg='Tie: '+r.tied.join(', ')+' ('+JSON.stringify(r.counts)+'). One revote.';return go('talk')}
+ S.revoted=false;if(!r.out){S.msg='No elimination.';return S.cycle>=VOI.MAX_CYCLES?end('draw'):go('talk')}
+ S.last=r.out;S.msg=r.out+' was a '+S.roles[r.out].toUpperCase()+'.';const n=VOI.eliminate(S,r.out);n==='continue'?(S.cycle>=VOI.MAX_CYCLES?end('draw'):go('out')):n==='guess'?go('guess'):end(n)}
+function end(w){S.win=w;go('result')}
+window.guessIt=()=>{const r=VOI.guess(S,document.getElementById('gi').value);r==='continue'?go('out'):end(r)};
+window.skipG=()=>{const r=VOI.guess(S,'');r==='continue'?go('out'):end(r)};
+window.again=()=>{const r=VOI.newRound(S.players,S.o,[]);S={...r,o:S.o,ph:'reveal',i:0,votes:{},vi:0,shown:false,msg:''};save();R()};
+window.quit=()=>{S=null;localStorage.removeItem(K);R()};
+window.mot=()=>{document.body.classList.toggle('calm');U.calm=!U.calm};
+function R(){let x='';
+ if(!S)x=h('<h1>VOTE OUT <span class=r>IMPOSTER</span></h1><p>One-device pass-and-play · fully offline</p>')+`<textarea id=nm rows=6 placeholder="One name per line (3–20)">Asha\nRavi\nMeena\nKiran</textarea><label>Imposters <input id=ni type=number min=1 value=1></label><label><input id=gs type=checkbox checked> Imposter last-chance guess</label><label><input id=hn type=checkbox checked> Imposters get a hint</label>`+btn('Start',"start()")+btn('Play online (multiple devices)','online()','ghost');
+ else if(S.resume){x=h('<h2>Game in progress</h2><p>Screen hidden for privacy.</p>')+btn('Resume',"S.resume=0;R()")+btn('Abandon',"quit()",'danger')}
+ else if(S.ph==='reveal'){const p=S.players[S.i];x=h(`<h2>${p}</h2><p>Make sure nobody else is looking.</p>`)+(S.shown?h(S.roles[p]==='innocent'?`Your word:<b class=big>${S.word}</b>`:`<span class=r>IMPOSTER</span><p>Hint: <b>${S.hint||'none'}</b></p>`,'card')+btn('Hide & pass on','next()'):btn('Tap to reveal','show()'))}
+ else if(S.ph==='talk'){x=h('<h2>Discussion</h2><p>Describe the word without saying it.</p>'+(S.msg?`<p class=r>${S.msg}</p>`:'')+h('Active: '+S.active.join(', ')))+btn('Start voting','go("vote")')}
+ else if(S.ph==='vote'){const p=S.active[S.vi],c=(S.restrict||S.active).filter(q=>q!==p);x=h(`<h2>${p}, vote privately</h2><p>Make sure nobody is looking.</p>`)+c.map(q=>btn(q,`vote('${q}')`)).join('')+btn('Abstain','vote(null)','ghost')}
+ else if(S.ph==='out')x=h('<h2>'+S.msg+'</h2>')+btn('Next discussion','go("talk")');
+ else if(S.ph==='guess')x=h(`<h2>${S.last} was an imposter</h2><p>Last chance: guess the word (only ${S.last} should look).</p>`)+'<input id=gi autocomplete=off>'+btn('Guess','guessIt()')+btn('Decline','skipG()','ghost');
+ else if(S.ph==='result'){const w=S.win;x=h(`<h1 class="${w==='imposters'?'r':''}">${w==='draw'?'DRAW':w.toUpperCase()+' WIN'}</h1><p>Word: <b>${S.word}</b> · Hint: <b>${S.hint||'none'}</b></p><p>${S.players.map(p=>p+': '+S.roles[p]).join('<br>')}</p>`)+btn('Play again (same roster)','again()')+btn('New game','quit()','ghost')}
+ $.innerHTML=x+h(btn('Reduced motion: '+(U.calm?'on':'off'),'mot()','ghost')+(S?btn('Abandon','quit()','ghost danger'):''),'foot')+h('Privacy note: this hides cards from shoulder-surfers, not from someone inspecting the device.<br>VR DEVELOPMENTS','note')}
+if(S&&S.ph)S.resume=1;
+if(matchMedia('(prefers-reduced-motion:reduce)').matches){U.calm=1;document.body.classList.add('calm')}
+R();
+</script><script>const OL={on:false,cfg:null,room:null,token:null,pub:null,me:null,err:'',shown:false,tm:null},ld=k=>{try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}},sv=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+OL.cfg=ld('voi-cfg');{const s=ld('voi-sess');if(s&&s.room&&s.token){OL.room=s.room;OL.token=s.token}}
+function chk(u,k){u=String(u||'').trim().replace(/\/+$/,'');k=String(k||'').trim();if(!/^https:\/\/[^\s/]+/.test(u))throw new Error('URL must start with https://');if(k.length<20)throw new Error('Key looks too short');
+ try{if(JSON.parse(atob(k.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).role==='service_role')throw new Error('SERVICE_ROLE key rejected — never paste that. Use the anon public key.')}catch(e){if(/SERVICE_ROLE/.test(e.message))throw e}return{u,k}}
+async function api(body){const r=await fetch(OL.cfg.u+'/functions/v1/game',{method:'POST',headers:{'Content-Type':'application/json',apikey:OL.cfg.k,Authorization:'Bearer '+OL.cfg.k},body:JSON.stringify(body)}),j=await r.json();if(!r.ok||j.error)throw new Error(j.error||'HTTP '+r.status);return j}
+function apply(j){OL.room=j.code;OL.token=j.token;OL.pub=j.pub;OL.me=j.me;OL.err='';sv('voi-sess',{room:j.code,token:j.token})}
+async function act(a,x){try{apply(await api({action:a,code:OL.room,token:OL.token,...x}))}catch(e){OL.err=e.message}oR()}
+async function poll(){if(!OL.on||!OL.room||!OL.cfg)return;try{apply(await api({action:'state',code:OL.room,token:OL.token}))}catch(e){OL.err=/not in|not found|expired/i.test(e.message)?(leave(),e.message):'Reconnecting… ('+e.message+')'}oR()}
+const v=id=>document.getElementById(id).value;
+window.online=()=>{OL.on=true;clearInterval(OL.tm);OL.tm=setInterval(poll,1500);poll();oR()};
+window.oBack=()=>{OL.on=false;clearInterval(OL.tm);R()};
+window.saveCfg=()=>{try{OL.cfg=chk(v('cu'),v('ck'));sv('voi-cfg',OL.cfg);OL.err=''}catch(e){OL.err=e.message}oR()};
+window.disc=()=>{OL.cfg=null;sv('voi-cfg',null);leave();oR()};
+function leave(){OL.room=OL.token=OL.pub=OL.me=null;sv('voi-sess',null)}
+window.oLeave=()=>{leave();oR()};
+window.oCreate=async()=>{try{apply(await api({action:'create',name:v('on')}))}catch(e){OL.err=e.message}oR()};
+window.oJoin=async()=>{try{apply(await api({action:'join',code:v('oc').trim().toUpperCase(),name:v('on')}))}catch(e){OL.err=e.message}oR()};
+window.oAct=(a,x)=>act(a,x||{});window.oStart=()=>act('start',{imposters:+v('oi')});window.oGuess=()=>act('guess',{text:v('og')});window.oShow=()=>{OL.shown=!OL.shown;oR()};
+function oR(){if(!OL.on)return;const p=OL.pub,m=OL.me,e=OL.err?h(OL.err,'r'):'',f=h(btn('← Back','oBack()','ghost')+(OL.cfg?btn('Disconnect backend','disc()','ghost danger'):''),'foot');let x='';
+ if(!OL.cfg)x=h('<h2>Connect to Supabase</h2><p class=r>⚠ Paste ONLY the anon PUBLIC key. NEVER paste a service_role key.</p>')+'<input id=cu placeholder="https://xxxx.supabase.co"><input id=ck placeholder="anon public key">'+btn('Save','saveCfg()');
+ else if(!OL.room){const q=new URLSearchParams(location.search).get('room')||'';x=h('<h2>Play online</h2>')+'<input id=on placeholder="Your name" maxlength=20>'+btn('Create room','oCreate()')+`<input id=oc placeholder="Room code" value="${q}" maxlength=6 style="text-transform:uppercase">`+btn('Join room','oJoin()','ghost')}
+ else if(!p)x=h('Connecting…');
+ else{const ph=p.phase,list=h(p.players.map(n=>n+(n===p.host?' ★':'')+(p.active&&!p.active.includes(n)?' ✖':'')).join(' · '));
+  if(ph==='lobby')x=h(`<h2>Room <span class=r>${p.code}</span></h2><p>Invite: ${location.origin+location.pathname}?room=${p.code}</p>`)+list+(m.isHost?`<label>Imposters <input id=oi type=number min=1 value=1></label>`+btn('Start game','oStart()'):h('Waiting for host…'));
+  else if(ph==='result')x=h(`<h1 class="${p.win==='imposters'?'r':''}">${p.win==='draw'?'DRAW':p.win.toUpperCase()+' WIN'}</h1><p>Word: <b>${p.reveal.word}</b> · Hint: <b>${p.reveal.hint||'none'}</b></p><p>${p.players.map(n=>n+': '+p.reveal.roles[n]).join('<br>')}</p>`)+(m.isHost?btn('Play again','oStart()')+'<label>Imposters <input id=oi type=number min=1 value=1></label>':'');
+  else{const card=OL.shown?h(m.role==='innocent'?`Word:<b class=big>${m.word}</b>`:`<span class=r>IMPOSTER</span><p>Hint: <b>${m.hint||'none'}</b></p>`,'card')+btn('Hide','oShow()'):btn('Show my role (nobody looking?)','oShow()');
+   const out=m.active?'':h('You are out — spectating.');
+   if(ph==='discussion')x=h('<h2>Discussion</h2>'+(p.msg?`<p class=r>${p.msg}</p>`:''))+list+out+card+(m.isHost?btn('Start voting','oAct("advance")'):'');
+   else if(ph==='voting'){const done=p.voted.includes(m.name);x=h('<h2>Vote</h2>')+out+(m.active&&!done?(p.restrict||p.active).filter(n=>n!==m.name).map(n=>btn(n,`oAct("vote",{target:"${n}"})`)).join('')+btn('Abstain','oAct("vote",{target:null})','ghost'):h(`Waiting… ${p.voted.length}/${p.active.length} voted`))}
+   else if(ph==='guess')x=h(`<h2>${p.msg}</h2>`)+(m.canGuess?'<p>Last chance — guess the word:</p><input id=og autocomplete=off>'+btn('Guess','oGuess()'):h('Waiting for the caught imposter’s guess…'))}
+ }
+ $.innerHTML=h(e)+x+(OL.room?btn('Leave room','oLeave()','ghost'):'')+f}
+window.oR=oR;
+</script></body></html>
