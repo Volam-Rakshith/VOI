@@ -47,6 +47,7 @@ export function OnlineSetup({
     }),
   )
   const [categoryId, setCategoryId] = useState('random')
+  const chaos = config.mode === 'chaos'
 
   if (!configured) {
     return (
@@ -202,10 +203,11 @@ export function OnlineSetup({
           <div className="glass clip-hud-sm space-y-1 px-3.5 py-2.5">
             <Stepper
               label="Imposters"
-              hint="Always a strict minority"
-              value={config.imposterCount}
+              hint={chaos ? 'Chaos re-rolls this every round' : 'Always a strict minority'}
+              value={chaos ? 1 : config.imposterCount}
               min={1}
               max={ONLINE_LIMITS.MAX_IMPOSTERS}
+              disabled={chaos}
               onChange={(value) => setConfig((c) => ({ ...c, imposterCount: value }))}
             />
             <Stepper
@@ -246,6 +248,16 @@ export function OnlineSetup({
             />
             <SegmentedControl
               size="sm"
+              label="game mode"
+              value={config.mode}
+              onChange={(value) => setConfig((c) => ({ ...c, mode: value }))}
+              options={[
+                { value: 'normal', label: 'Normal', hint: 'fixed imposters' },
+                { value: 'chaos', label: 'Chaos', hint: 'anyone could be one' },
+              ]}
+            />
+            <SegmentedControl
+              size="sm"
               label="win rule"
               value={config.winRule}
               onChange={(value) => setConfig((c) => ({ ...c, winRule: value }))}
@@ -254,6 +266,11 @@ export function OnlineSetup({
                 { value: 'survival', label: 'Manhunt', hint: 'multi-round' },
               ]}
             />
+            {chaos && (
+              <p className="text-[11.5px] leading-relaxed text-cyan-200/75">
+                Chaos re-rolls the imposters every round — one, several, many, or the whole table.
+              </p>
+            )}
           </div>
 
           {errors.form && <InlineNotice tone="error">{errors.form}</InlineNotice>}

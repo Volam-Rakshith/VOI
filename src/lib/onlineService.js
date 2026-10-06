@@ -206,6 +206,7 @@ export function normalizeRoom(rawRoom, meta = {}) {
       winRule: 'classic',
       voteMode: 'secret',
       clueOrder: 'random',
+      mode: 'normal',
       ...(room.config || {}),
     },
     players: Array.isArray(room.players)

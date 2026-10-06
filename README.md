@@ -36,18 +36,29 @@ Local pass & play works offline. Online rooms are optional and run on a free Sup
 | **Pass & Play** | One phone/tablet passed around | 2–20 | No — fully offline |
 | **Online Room** | One device per player | 3–20 | Yes (Supabase) |
 
+Both support the same two assignment styles:
+
+- **Normal** — a fixed number of imposters, always a strict minority, chosen once when the game starts.
+- **Chaos** — *anyone can be an imposter.* Every round re-rolls the roles from scratch, so a round can
+  have one imposter, several, or literally every player. Nothing is fixed and nobody is guaranteed to
+  be crew. Replaying keeps the same players and settings but rolls a **brand-new** assignment — the
+  previous one is never reused. Normal Mode is untouched by any of this.
+
 ### Everything included
 
 - **Cinematic splash** with glow, blur, glitch and a neon sweep (≈1.6 s), then a smooth hand-off to the menu.
 - **Cyberpunk × synthwave HUD**: deep violet `#0B001A`, neon cyan/purple/magenta, glassmorphism, clipped corners, grain, animated particle field that reacts to pointer and device tilt.
 - **3D secret cards** with real perspective, pointer-tracked glare, shimmer sweep, and a hard rule: the card is only readable while it is flipped.
-- **Configurable rounds**: 2–20 players, 1–9 imposters (always a strict minority), 15/30/45/60/90 s turns, category + difficulty selection, secret ballots or a single open accusation, and two win rules (*Classic* / *Manhunt*).
+- **Configurable rounds**: 2–20 players, 1–9 imposters (strict minority in Normal Mode, or **Chaos Mode**
+  where each round re-rolls who the imposters are — any number, up to and including everyone), 15/30/45/60/90 s turns, category + difficulty selection, secret ballots or a single open accusation, and two win rules (*Classic* / *Manhunt*).
 - **Circular countdown ring** with escalating states — warning at 10 s, critical pulse at 5 s, time-up flare at 0.
 - **Dramatic reveals**: vote tallies animate bar by bar, the accused player's role lands with a burst, winners get confetti or a glitch-shake takeover.
 - **Online rooms** with 4-character codes from an unambiguous alphabet (`A7KQ`-style), live lobby, ready states, host controls, host migration, reconnection, refresh-safe seats and a synced shared timer.
 - **BLACK BOX** — a hidden admin layer: 3 taps in the top-right corner of the home screen, a passphrase prompt, then a command-centre dashboard with system status, full word-database CRUD, category management, room management and session controls.
 - **Custom word engine** with 9 built-in categories (~150 words) across three difficulty tiers, plus import/export JSON, guarded reset-to-defaults and optional cloud sync.
-- **Accessibility & comfort**: semantic markup, keyboard navigation, visible focus rings, ARIA labels, 0–2 “theme intensity”, reduced-motion support (system + in-app), optional haptics, and a sound engine built from pure Web Audio (no audio files, nothing autoplays).
+- **Accessibility & comfort**: semantic markup, keyboard navigation, visible focus rings, ARIA labels, 0–2 “theme intensity”, reduced-motion support (system + in-app), optional **haptics** (vibration on deal, reveal, voting, vote
+  cast, timer warning and the verdict — every cue is role-agnostic and identical for crew and imposters,
+  so a buzz can never identify anyone), and a sound engine built from pure Web Audio (no audio files, nothing autoplays).
 - **PWA-ready & offline-capable**: web manifest, maskable icon, theme colour, safe-area handling, plus an optional
   service worker (production only) that keeps the app bootable with no connection at all — local pass & play genuinely
   works on a plane.
@@ -82,9 +93,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 62 rule/utility tests (roles, win conditions, validation, word bank, online tally math, error copy, backend config resolution) |
+| `npm run test:engine` | 98 rule/utility tests (roles + chaos rolls, win conditions incl. multi-imposter Classic, validation, word bank, online tally math, secret-plumbing invariants, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 67-check UI smoke test: mounts the app in jsdom, **plays a full round end to end**, verifies the boot failsafe and the backend-connect flow |
+| `npm run test:ui` | 102-check UI smoke test: mounts the app in jsdom, **plays a full round and a full chaos round end to end**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -130,6 +141,7 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
     │   ├── blackbox.js        # admin gate: salted digest, throttling, audit log
     │   ├── router.jsx         # tiny hash router (refresh-safe on Pages)
     │   ├── sound.js           # Web Audio synth cues
+    │   ├── haptics.js         # vibration cue table (role-agnostic, safe no-op)
     │   └── confetti.js        # victory / defeat bursts (fault tolerant)
     ├── context/
     │   ├── SettingsContext.jsx
@@ -167,12 +179,26 @@ contains game logic, and the same rules drive local *and* online play.
 
 | Win rule | Crew wins when | Imposters win when |
 | --- | --- | --- |
-| **Classic** (one vote decides) | The vote lands on an imposter | The vote lands on a crew member, **or** the vote ties (nobody is accused) |
+| **Classic** (one vote decides) | The vote lands on **any** imposter — with several in play, catching one is enough, exactly as the rules promise | The vote lands on a crew member, **or** the vote ties (nobody is accused) |
 | **Manhunt** (multi-round) | Every imposter has been removed | Imposters equal the remaining crew, or they survive all rounds |
+
+The end screen always states the true reason: which imposter was caught (and how many of the total),
+whether a crew member was wrongly accused, or that a split vote saved nobody. The sub-headline
+adapts too — `1 OF 3 IMPOSTERS CAUGHT` rather than a claim that everyone was caught.
 
 Imposters are always a strict minority: with *n* players you can have at most `floor((n-1)/2)`.
 Role assignment uses `crypto.getRandomValues()` with rejection sampling and a Fisher–Yates
 shuffle, never plain `Math.random()` alone.
+
+**Chaos Mode is the deliberate exception.** It never forces a normal player to exist: each round rolls
+a fresh assignment, weighted so that a single imposter and an all-imposter round are both real
+possibilities, with every seat equally likely to land on either side. Roles are revealed through the
+same private card system, so the table still learns nothing before the reveal. When *every* player is
+an imposter there is no crew to catch anyone, and the verdict says exactly that.
+
+**Haptics never betray a role.** The vibration cue for revealing a card is byte-for-byte identical
+whether you are crew or imposter, and cues are short — a phone on a table should feel the game, not
+broadcast it. Vibration is a Settings toggle and is skipped silently on devices that don't support it.
 
 ---
 
@@ -214,6 +240,22 @@ and run it. That single script creates:
   `imposter_heartbeat`, `imposter_patch_room`, `imposter_set_secrets`, `imposter_submit_vote`,
   `imposter_terminate_room`, `imposter_sweep_expired`
 - Realtime publication for the rooms table
+
+**The file is safe to run more than once** — every statement is guarded — so if you are unsure whether
+a project was set up completely, just paste it again; nothing is dropped and no room data is touched.
+
+To confirm a project is ready without changing anything, run [`supabase/verify.sql`](supabase/verify.sql)
+the same way. It is read-only and returns one verdict line plus a per-object checklist:
+
+```text
+SETUP STATUS | complete — 20/20 checks passed, online rooms are ready
+```
+
+If it reports anything as `MISSING`, run `schema.sql` and check again.
+
+> Line count sanity check: a complete run of `schema.sql` ends with the notice
+> `Realtime: imposter_rooms added to supabase_realtime` (or `...is already streamed`). If your last
+> paste ended in red text instead, the project is only partly set up — re-run the file.
 
 ### 4. Turn on realtime
 
@@ -332,6 +374,19 @@ The unlock lasts 30 minutes in the tab (`sessionStorage`) and the panel can be l
 Failed attempts are throttled: 5 tries then a 60-second lockout, with every event written to a
 local audit log.
 
+### Adding your own words & categories
+
+Everything lives in **BLACK BOX → WORD DATABASE**:
+
+1. Go to the main menu.
+2. **Tap the top-right corner three times, quickly** (the zone is invisible; a triple-tap is the door).
+3. Enter the access phrase, then open **WORD DATABASE** — add, edit, delete, search, filter by
+   category/difficulty, import/export JSON, and reset to defaults. **CATEGORIES** lets you create
+   your own group; it appears in the game setup's category list straight away.
+
+New words are stored on this device and are immediately playable. The Settings screen repeats these
+steps under *CUSTOM WORDS & CATEGORIES*, so you never have to remember them.
+
 ### Rotating the access phrase
 
 The passphrase is never stored in the source — only a salted SHA-256 digest is:
@@ -355,7 +410,7 @@ node scripts/set-admin-password.mjs "your new passphrase"
 | `VITE_BASE_PATH` | No (default `./`) | Absolute asset base, e.g. `/my-repo/` |
 
 User-facing settings (Settings screen, stored in `localStorage`):
-sound · animations · reduced motion · haptics · imposter cover word · theme intensity (0–2).
+sound · animations · reduced motion · haptics (vibration ON/OFF) · imposter cover word · theme intensity (0–2).
 
 ---
 
@@ -390,18 +445,20 @@ This is an honest description of a static client-side app.
 ## Testing
 
 ```bash
-npm run test          # runs both suites back to back
+npm run test          # runs both suites back to back (build first — the UI suite checks dist/)
 
-npm run test:engine   # 62 tests: role assignment, reveal lifecycle, timer, win conditions
+npm run test:engine   # 98 tests: role assignment (incl. chaos rolls, per-seat fairness and
+                      # re-roll freshness), reveal lifecycle, timer, win conditions
                       # for both rulesets, illegal-move rejection, name/code/word validation,
                       # word-bank CRUD + import sanitising, online vote math and phase routing,
                       # user-facing error copy, plus a source scan proving the admin
                       # passphrase is not committed anywhere under src/
 
-npm run test:ui       # 67 checks: bundles the real app with esbuild, mounts it in jsdom and
+npm run test:ui       # 102 checks: bundles the real app with esbuild, mounts it in jsdom and
                       # plays a complete local round — deal → six reveals/hides → briefing →
                       # timer start/pause/reset → clues → secret ballot → tally → winner →
-                      # play again — while also covering the splash hand-off, the hidden
+                      # play again — plus a full Chaos Mode round and the haptic cues for every
+                      # phase, while also covering the splash hand-off, the hidden
                       # three-tap admin gesture, passphrase rejection/acceptance, the
                       # eight-step tutorial, the settings screen and every route fallback.
                       # It also loads index.html in a raw DOM with no bundle attached and asserts
@@ -479,6 +536,9 @@ Run `supabase/schema.sql` once in the project and online rooms are live.
 | “Connect a backend to play online” | Paste your project URL + anon key right there (or BLACK BOX → BACKEND). No rebuild needed. |
 | Values ignored after editing `runtime-config.json` | The panel says why — usually a placeholder left in, a missing value, or invalid JSON. In-app values outrank the file, so clear those if you meant to switch. |
 | “That is the service-role key” | Working as intended — use the anon / publishable key. The service-role key must never be in a browser. |
+| Pasted the Supabase **dashboard** URL by mistake | No longer a problem: `supabase.com/dashboard/project/<ref>` is converted automatically to `https://<ref>.supabase.co`. A dashboard link without a project reference is refused with instructions. |
+| A tall panel can't be scrolled on a phone | Fixed: the page behind a dialog is scroll-locked, so dialogs now cap themselves to the viewport and scroll internally. |
+| The crew caught an imposter but the imposters still won | Fixed in Classic mode. Catching any imposter wins the round; only a wrong accusation or a tied vote hands it over. Manhunt still requires removing every imposter. |
 | “The room database is not set up yet” | Run `supabase/schema.sql` in the SQL editor. |
 | Lobby never updates on other devices | Enable Realtime and make sure `imposter_rooms` is in the `supabase_realtime` publication. |
 | “That code contains a character we never use” | Room codes exclude `O I L 0 1 S Z 2 5` to avoid misreads — check the code again. |

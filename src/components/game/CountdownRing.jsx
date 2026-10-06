@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
+import { haptic } from '../../lib/haptics.js'
 
 export function CountdownRing({
   secondsLeft = 30,
@@ -18,9 +19,11 @@ export function CountdownRing({
   onComplete,
   muted = false,
 }) {
-  const { motionOff } = useSettings()
+  const { motionOff, vibrate } = useSettings()
   const firedRef = useRef(new Set())
   const completeRef = useRef(false)
+  /* Haptic milestones fire once each — a buzz per second would be unbearable. */
+  const hapticRef = useRef({ warned: false, critical: false })
 
   const progress = Math.max(0, Math.min(1, duration ? secondsLeft / duration : 0))
   const critical = secondsLeft <= 5 && secondsLeft > 0
@@ -50,9 +53,28 @@ export function CountdownRing({
   useEffect(() => {
     if (running) {
       completeRef.current = false
+      hapticRef.current = { warned: false, critical: false }
       if (secondsLeft > 10) firedRef.current.clear()
     }
   }, [running, secondsLeft])
+
+  /* Vibration milestones — separate from the audio path, so muting sound never
+     silences haptics (and vice versa). */
+  useEffect(() => {
+    if (!running) return
+    if (secondsLeft <= 10 && secondsLeft > 5 && !hapticRef.current.warned) {
+      hapticRef.current.warned = true
+      haptic('timerWarning', vibrate)
+    }
+    if (secondsLeft <= 5 && secondsLeft > 0 && !hapticRef.current.critical) {
+      hapticRef.current.critical = true
+      haptic('timerCritical', vibrate)
+    }
+    if (secondsLeft <= 0 && firedRef.current.has('ended') === false) {
+      firedRef.current.add('ended')
+      haptic('timerEnd', vibrate)
+    }
+  }, [secondsLeft, running, vibrate])
 
   return (
     <div className="flex flex-col items-center">

@@ -14,7 +14,7 @@
  * }
  */
 
-import { GAME_PHASES, ROLES, WIN_RULES } from '../data/constants.js'
+import { GAME_MODES, GAME_PHASES, ROLES, WIN_RULES } from '../data/constants.js'
 import { uid, shuffle, randomInt, randomPick } from '../utils/random.js'
 import { validateGameConfig, normalizeName } from '../utils/validate.js'
 
@@ -48,10 +48,15 @@ export function currentVoter(state) {
 export const isImposter = (player) => player?.role === ROLES.IMPOSTER
 
 /** Human-readable win condition text used across briefing / rules screens. */
-export function winConditionText(winRule) {
+export function winConditionText(winRule, mode) {
+  if (mode === 'chaos') {
+    return winRule === 'survival'
+      ? 'Chaos re-rolls the imposters every round. Crew wins by removing every imposter; imposters win once they match the crew.'
+      : 'Chaos re-rolls the imposters every round. Catch an imposter and the crew takes the round — accuse a crew member and the imposters do.'
+  }
   return winRule === 'survival'
     ? 'Crew wins by removing every imposter. Imposters win the moment they equal the crew.'
-    : 'One vote decides it: catch an imposter and the crew wins — accuse the wrong player and the imposters take it.'
+    : 'One vote decides it: catch an imposter and the crew wins instantly — accuse a crew member and the imposters take it.'
 }
 
 /* -------------------------------------------------------------------------- */
@@ -71,6 +76,94 @@ export function assignRoles(playerCount, imposterCount) {
   const seats = shuffle(Array.from({ length: total }, (_, i) => i))
   for (let i = 0; i < imp; i += 1) roles[seats[i]] = ROLES.IMPOSTER
   return { roles, imposterCount: imp, seats: seats.slice(0, imp) }
+}
+
+/**
+ * CHAOS MODE — the imposter count is re-rolled every round.
+ *
+ * Outcomes are weighted so all four flavours show up often enough to be felt:
+ * exactly one, a few, many, or the entire table (no crew at all — the spec is
+ * explicit that a normal player is never forced).
+ *
+ * Every player has the same chance of being chosen: the count is random AND the
+ * seats are shuffled with `crypto`-backed randomness.
+ */
+export const CHAOS_TIERS = [
+  { id: 'single', label: 'one', weight: 35 },
+  { id: 'few', label: 'several', weight: 25 },
+  { id: 'many', label: 'many', weight: 25 },
+  { id: 'all', label: 'everyone', weight: 15 },
+]
+
+/** Which flavour a given imposter count represents, for copy + tests. */
+export function chaosTierFor(total, imposterCount) {
+  if (imposterCount >= total) return 'all'
+  if (imposterCount <= 1) return 'single'
+  if (imposterCount <= Math.max(2, Math.ceil(total / 3))) return 'few'
+  return 'many'
+}
+
+/**
+ * Roll an imposter count for `playerCount` players.
+ * Returns a number in 1..playerCount — `playerCount` means everyone.
+ */
+export function rollChaosImposterCount(playerCount) {
+  const total = Math.max(2, Math.floor(playerCount) || 0)
+  const tierOf = (count) => chaosTierFor(total, count)
+  const weights = CHAOS_TIERS.map((tier) => tier.weight)
+
+  // Weighted draw over the tiers, then a uniform count inside the tier's range.
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0)
+  let roll = randomInt(totalWeight)
+  let chosen = CHAOS_TIERS[CHAOS_TIERS.length - 1].id
+  for (let i = 0; i < CHAOS_TIERS.length; i += 1) {
+    if (roll < weights[i]) {
+      chosen = CHAOS_TIERS[i].id
+      break
+    }
+    roll -= weights[i]
+  }
+
+  const counts = Array.from({ length: total }, (_, i) => i + 1).filter((count) => tierOf(count) === chosen)
+  // Degenerate tables (2 players) can leave a tier empty — fall back to any count.
+  const pool = counts.length ? counts : Array.from({ length: total }, (_, i) => i + 1)
+  return pool[randomInt(pool.length)]
+}
+
+/**
+ * Chaos role assignment.
+ * Unlike `assignRoles` this does NOT clamp to a minority: everyone can be an
+ * imposter, including all players at once.
+ */
+export function assignChaosRoles(playerCount, forcedCount = null) {
+  const total = Math.max(2, Math.floor(playerCount) || 0)
+  const count = forcedCount === null ? rollChaosImposterCount(total) : Math.max(1, Math.min(total, Math.floor(forcedCount) || 1))
+  const roles = Array(total).fill(ROLES.CREW)
+  const seats = shuffle(Array.from({ length: total }, (_, i) => i))
+  for (let i = 0; i < count; i += 1) roles[seats[i]] = ROLES.IMPOSTER
+  return {
+    roles,
+    imposterCount: count,
+    seats: seats.slice(0, count),
+    chaos: true,
+    tier: chaosTierFor(total, count),
+  }
+}
+
+/** True when a configuration asks for randomised (chaos) role assignment. */
+export const isChaosMode = (config) => config?.mode === 'chaos'
+
+/**
+ * Single entry point for role assignment, so local and online can never drift.
+ * Normal mode is untouched: it still goes through `assignRoles` exactly as before.
+ */
+export function assignRolesFor(config, playerCount) {
+  if (isChaosMode(config)) {
+    const assignment = assignChaosRoles(playerCount)
+    return { ...assignment, imposterCount: assignment.imposterCount }
+  }
+  const assignment = assignRoles(playerCount, config?.imposterCount)
+  return { ...assignment, chaos: false, tier: null }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -99,7 +192,7 @@ function secretPayload(secret) {
  */
 export function createGame(config, names, secret) {
   const { config: safeConfig } = validateGameConfig({ ...config, playerCount: names.length })
-  const { roles } = assignRoles(names.length, safeConfig.imposterCount)
+  const { roles, imposterCount, chaos, tier } = assignRolesFor(safeConfig, names.length)
 
   const players = names.map((raw, index) => ({
     id: uid('p'),
@@ -131,7 +224,36 @@ export function createGame(config, names, secret) {
     lastResult: null,
     winner: null,
     history: [],
+    /* Chaos bookkeeping. Kept out of the UI during play so the count stays secret. */
+    chaos: Boolean(chaos),
+    chaosTier: tier,
+    imposterCount: imposterCount,
   })
+}
+
+/**
+ * Re-roll roles for everyone still in play (chaos rounds do this every round).
+ * Eliminated players keep the role they were judged on — their history stands.
+ */
+export function rerollChaosRoles(state) {
+  if (!isChaosMode(state.config)) return state
+  const living = state.players.filter((p) => p.alive)
+  if (!living.length) return state
+
+  const { roles, imposterCount, tier } = assignChaosRoles(living.length)
+  const roleByPlayer = new Map(living.map((player, index) => [player.id, roles[index]]))
+
+  return {
+    ...state,
+    players: state.players.map((p) =>
+      roleByPlayer.has(p.id)
+        ? { ...p, role: roleByPlayer.get(p.id), revealed: false }
+        : { ...p, revealed: false },
+    ),
+    chaos: true,
+    chaosTier: tier,
+    imposterCount,
+  }
 }
 
 /** Decide the order players give clues in. */
@@ -353,26 +475,67 @@ function eliminate(state, targetId) {
 }
 
 /**
- * Decide who won, freeze the round result and set the phase.
- * Crew wins when every imposter is gone; imposters win on survival rules.
+ * Decide who won. Crew wins when every imposter is gone — and in Classic mode,
+ * catching ANY imposter takes the round, exactly as the rules promise ("catch an
+ * imposter and the crew wins instantly"), however many imposters are in play.
+ *
+ * Returns `null` when the game should keep going.
  */
 export function determineWinner(state) {
+  const totalImposters = state.players.filter(isImposter).length
+  const totalCrew = state.players.filter((p) => p.role === ROLES.CREW).length
   const remainingImposters = aliveImposters(state).length
   const remainingCrew = aliveCrew(state).length
+  const caughtImposters = totalImposters - remainingImposters
+
+  /*
+   * Chaos rounds can deal an all-imposter table. With no crew there is nobody to
+   * catch anybody, so the deception simply wins. Unreachable in normal mode,
+   * where imposters are always a strict minority.
+   */
+  if (totalCrew === 0) {
+    return {
+      team: 'imposter',
+      reason: 'Every single player was an imposter — there was no crew to catch anyone.',
+      chaos: true,
+    }
+  }
 
   if (remainingImposters === 0) {
-    return { team: 'crew', reason: 'Every imposter was removed from the ship.' }
+    return {
+      team: 'crew',
+      reason: totalImposters > 1 ? `All ${totalImposters} imposters were rooted out.` : 'The imposter was caught and removed from the ship.',
+    }
   }
+
   if (state.config.winRule === 'survival') {
     if (remainingImposters >= remainingCrew) {
       return { team: 'imposter', reason: 'The imposters now match the crew — they cannot be outvoted.' }
     }
     if (state.round >= state.totalRounds) {
-      return { team: 'imposter', reason: 'The imposters survived every round.' }
+      return { team: 'imposter', reason: `The imposters survived all ${state.totalRounds} rounds.` }
     }
     return null
   }
-  return { team: 'imposter', reason: 'The wrong player was accused and the imposters walked free.' }
+
+  // Classic: one decisive vote per round.
+  if (caughtImposters > 0) {
+    return {
+      team: 'crew',
+      reason:
+        totalImposters > 1
+          ? `${caughtImposters} of ${totalImposters} imposters caught — that is enough to secure the ship.`
+          : 'The imposter was caught and removed from the ship.',
+    }
+  }
+
+  const previous = state.history?.[state.history.length - 1] || null
+  return {
+    team: 'imposter',
+    reason: previous?.tie
+      ? 'The vote was split, nobody was accused, and the imposters slipped away.'
+      : 'A crew member was accused and removed — the imposters walked free.',
+  }
 }
 
 function finalize(state, result) {
@@ -394,16 +557,18 @@ function finalize(state, result) {
 /** Advance to the next round of clues (survival mode). */
 export function nextRound(state) {
   if (state.winner) return state
+  /* Chaos: every new round gets a brand-new assignment — never the previous one. */
+  const rolled = rerollChaosRoles(state)
   return {
-    ...state,
-    round: state.round + 1,
+    ...rolled,
+    round: rolled.round + 1,
     phase: GAME_PHASES.HANDOFF,
     revealIndex: 0,
     cardVisible: false,
     clueIndex: 0,
     votes: {},
     voteIndex: 0,
-    timer: { running: false, secondsLeft: state.config.turnSeconds, duration: state.config.turnSeconds },
+    timer: { running: false, secondsLeft: rolled.config.turnSeconds, duration: rolled.config.turnSeconds },
   }
 }
 
@@ -499,7 +664,13 @@ const BRIEF_LINES = [
   'The imposters are improvising. Pressure exposes improvisation.',
 ]
 export function briefLine(state) {
-  return BRIEF_LINES[(state.round - 1 + randomInt(BRIEF_LINES.length)) % BRIEF_LINES.length]
+  const line = BRIEF_LINES[(state.round - 1 + randomInt(BRIEF_LINES.length)) % BRIEF_LINES.length]
+  if (isChaosMode(state.config)) {
+    return state.round > 1
+      ? `CHAOS ROUND ${state.round} — roles were re-rolled. You may not be who you were. ${line}`
+      : `CHAOS MODE — nobody knows how many imposters are in this round. ${line}`
+  }
+  return line
 }
 
 /** Round summary used by the results screen. */

@@ -27,11 +27,14 @@ npm run dev       # → http://localhost:5173
 Optional but recommended before committing:
 
 ```bash
-npm run test:engine   # 62 rule/utility tests  → expect "62 passed, 0 failed"
-npm run test:ui       # 67 UI checks (full round + boot failsafe + backend connect flow)
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
+npm run test:engine   # 98 rule/utility tests  → expect "98 passed, 0 failed"
+npm run test:ui       # 102 UI checks (full round + chaos round + haptics + failsafe + backend + scrolling)
 npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
 ```
+
+> Build **before** `test:ui`: the UI suite also inspects the built `dist/`, and without one it reports
+> `dist/index.html exists (run npm run build first)` as its only failure.
 
 > **Never publish the repo root as a website.** `index.html` in the source tree is the Vite dev
 > entry (`/src/main.jsx`); browsers cannot execute it off a static host, which is what produced a
@@ -66,9 +69,27 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 - [ ] Reveal the tally → bars animate, eliminated player + role shown
 - [ ] Catch the imposter → TEAM WINS + confetti; wrong player → IMPOSTER WINS + glitch/shake
 - [ ] Tie vote in Classic → "nobody accused" and imposters win
+- [ ] Classic with several imposters: catching **one** imposter wins the round for the crew
+- [ ] Classic: wrong accusation ends it with "a crew member was accused…"; a tie says the vote was split
+- [ ] The verdict line reflects reality (`1 OF 3 IMPOSTERS CAUGHT`, not "the imposter was caught")
 - [ ] Manhunt rule: wrong accusation continues to round 2 with one fewer player
 - [ ] Play again re-rolls roles and the word; word never repeats back-to-back
 - [ ] Quit mid-game asks for confirmation and returns to the menu
+
+## 2b. Chaos Mode (anyone can be an imposter)
+
+- [ ] On **PLAY LOCAL**, Setup → Game Mode shows both cards; picking **Chaos** explains that roles
+      are re-rolled every round and greys out the fixed imposter count
+- [ ] Start a 4+ player chaos game: reveals, clues, voting and results all behave exactly as in Normal Mode
+- [ ] Play several chaos rounds — you should see different role mixes, including rounds with more than
+      one imposter (an all-imposter round is rare but real: roughly 1 in 7 for six players)
+- [ ] Every player gets a turn as imposter across enough rounds; nobody is permanently crew
+- [ ] **Play again** re-rolls: the same player is not stuck with the same role as the last game
+- [ ] In an all-imposter round nobody is falsely accused — the verdict states that every player was an
+      imposter instead of crediting a crew win
+- [ ] **Normal Mode is unchanged**: fixed imposter count, strict minority, same reveals and results
+- [ ] Online rooms: the host sees the same Chaos option; after the round ends, **Next round**
+      re-rolls every living player's role (eliminated players keep the role they were judged on)
 
 ## 3. Mobile feel (do this on a real phone if possible)
 
@@ -76,6 +97,8 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 - [ ] Secret card fits fully on screen at 320 px, 375 px and 430 px widths
 - [ ] Hold the phone portrait — the card, timer and vote grid never clip
 - [ ] Haptics fire on tap/reveal (Android; iOS Safari has no vibration API)
+- [ ] The reveal buzz feels the same when you are crew and when you are the imposter (it must not
+      identify anyone), and Settings → Haptics OFF silences every cue
 - [ ] Sound plays after first tap, and Settings → Sound OFF silences everything
 
 ## 4. Settings, tutorial, accessibility
@@ -107,6 +130,8 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 
 ## 5b. Connecting the backend (no rebuild)
 
+- [ ] Supabase project check: SQL Editor → paste `supabase/verify.sql` → `SETUP STATUS | complete — 20/20`
+- [ ] Paste `supabase/schema.sql` a second time → runs clean (it is guarded, nothing is dropped)
 - [ ] Online Room → **Connect a backend** opens the panel with both fields
 - [ ] Paste a URL without `https://` → normalised; a bare project ref → expanded to `*.supabase.co`
 - [ ] Paste the **service-role** key → refused with a security explanation, nothing saved
@@ -118,6 +143,9 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 - [ ] Edit `dist/runtime-config.json` on the host with real values → reload → the file is named as the source
 - [ ] Put a typo in that file → the panel says it was ignored, and why (never silent)
 - [ ] **Forget device values** → falls back to the file / build values
+- [ ] Paste the Supabase **dashboard** address (`supabase.com/dashboard/project/…`) → it is converted to the project URL automatically
+- [ ] Paste `supabase.com/dashboard` (no project) → refused with an explanation
+- [ ] Scroll the connect panel on a short screen / phone landscape → the panel scrolls internally
 - [ ] SYSTEM STATUS → Supabase row shows the host and its source
 
 ## 6. Online rooms (needs Supabase running — any of the three ways above)
@@ -185,6 +213,9 @@ These are the areas I could not fully verify in this sandbox. If any misbehave, 
    itself. If you ever see an old build after deploying, hard-refresh once.
 7. **Long rosters (18–20 players)** — clue rounds get long. Tell me if you want a "shorter round"
    setting (skip N clues / one clue per pair) added.
+8. **Vibration feel** — patterns are deliberately short (8–60 ms steps) so a phone on a table doesn't
+   broadcast the game. If a cue feels too strong, weak, or too frequent on your device, tell me which
+   moment it was and I'll tune that single pattern.
 
 ---
 

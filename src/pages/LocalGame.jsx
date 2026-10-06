@@ -4,12 +4,13 @@
  * All transitions come from the engine; this page only routes phases.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { GAME_PHASES, ROUTES } from '../data/constants.js'
 import { useWordBank } from '../context/WordBankContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { useLocalGame } from '../hooks/useLocalGame.js'
+import { haptic } from '../lib/haptics.js'
 import { briefLine } from '../lib/gameEngine.js'
 import { SetupScreen } from '../components/game/SetupScreen.jsx'
 import {
@@ -31,11 +32,13 @@ import { DEFAULT_CONFIG } from '../data/defaults.js'
 export function LocalGame({ onNavigate }) {
   const bank = useWordBank()
   const toast = useToast()
-  const { settings } = useSettings()
+  const { settings, vibrate } = useSettings()
   const { state, view, startGame, actions, error, lastConfig } = useLocalGame(bank)
   const [confirmQuit, setConfirmQuit] = useState(false)
   const [names, setNames] = useState(() => (lastConfig?.names || []).map((n) => normalizeName(n) || ''))
   const [line, setLine] = useState('')
+  const firedRef = useRef('')
+  const startedRef = useRef(null)
 
   /* Fresh flavour line per round. */
   useEffect(() => {
@@ -49,6 +52,55 @@ export function LocalGame({ onNavigate }) {
   useEffect(() => {
     if (error) toast.error(error)
   }, [error, toast])
+
+  /*
+   * Lifecycle haptics. Driven by the phase machine rather than by buttons, so
+   * every device (and both game modes) feels the same. `firedRef` keeps a cue
+   * from repeating when unrelated state re-renders the same phase.
+   */
+  useEffect(() => {
+    if (!state) return
+    const key = `${state.round}:${state.phase}:${state.revealIndex}:${state.clueIndex}:${state.voteIndex}`
+    if (firedRef.current === key) return
+    const previous = firedRef.current
+    firedRef.current = key
+    if (!previous) return // first paint of a freshly dealt game is handled below
+
+    const chaos = state.config?.mode === 'chaos'
+    switch (state.phase) {
+      case GAME_PHASES.REVEAL:
+        haptic('roleReveal', vibrate)
+        break
+      case GAME_PHASES.BRIEFING:
+        haptic(chaos ? 'chaosRound' : 'roundStart', vibrate)
+        break
+      case GAME_PHASES.CLUES:
+        haptic('turnChange', vibrate)
+        break
+      case GAME_PHASES.VOTE_INTRO:
+        haptic('votingStart', vibrate)
+        break
+      case GAME_PHASES.TALLY:
+        haptic('votingEnded', vibrate)
+        break
+      case GAME_PHASES.RESULT: {
+        const allImposters = state.chaos && !state.players.some((p) => p.role === 'crew')
+        if (allImposters) haptic('chaosAll', vibrate)
+        else haptic('eliminated', vibrate)
+        break
+      }
+      default:
+        break
+    }
+  }, [state, vibrate])
+
+  /* Dealt: the opening cue for a brand-new game. */
+  useEffect(() => {
+    if (state && state.id !== startedRef.current) {
+      startedRef.current = state.id
+      haptic(state.config?.mode === 'chaos' ? 'chaosRound' : 'gameStart', vibrate)
+    }
+  }, [state, vibrate])
 
   const handleStart = useCallback(
     (config, roster) => {
@@ -142,7 +194,7 @@ export function LocalGame({ onNavigate }) {
         onBack={requestQuit}
         right={
           <span className="hidden font-mono text-[10.5px] text-violet-200/50 sm:inline">
-            {state.config.winRule === 'classic' ? 'classic' : `manhunt ${state.round}/${state.totalRounds}`}
+            {state.config.mode === 'chaos' ? 'chaos' : state.config.winRule === 'classic' ? 'classic' : `manhunt ${state.round}/${state.totalRounds}`}
           </span>
         }
       />

@@ -98,8 +98,8 @@ export function AdminSettings({ onLock }) {
               onChange={(value) => updateSettings({ reducedMotion: value })}
             />
             <Toggle
-              label="Haptics"
-              hint="Short vibrations on touch devices where supported"
+              label="Haptics (vibration)"
+              hint="Game-event vibration: reveals, votes, timer, result. Skipped when unsupported."
               checked={settings.haptics}
               onChange={(value) => updateSettings({ haptics: value })}
             />

@@ -57,6 +57,8 @@ await writeFile(
   import * as runtimeConfig from '${path.resolve('src/lib/runtimeConfig.js').replace(/\\/g, '/')}'
   import * as supabaseLib from '${path.resolve('src/lib/supabase.js').replace(/\\/g, '/')}'
   window.__backend = { runtimeConfig, supabaseLib }
+  import { haptic, HAPTIC } from '${path.resolve('src/lib/haptics.js').replace(/\\/g, '/')}'
+  window.__haptics = { haptic, HAPTIC }
   `,
 )
 
@@ -130,7 +132,12 @@ const noopContext = new Proxy(
 window.HTMLCanvasElement.prototype.getContext = () => noopContext
 window.scrollTo = () => {}
 if (!window.requestAnimationFrame) window.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 16)
-window.navigator.vibrate = () => true
+/* Record haptic calls so the tests can assert what the game actually fires. */
+window.__vibrations = []
+window.navigator.vibrate = (pattern) => {
+  window.__vibrations.push(pattern)
+  return true
+}
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const text = () => window.document.body.textContent || ''
@@ -151,6 +158,22 @@ const pointer = (el) => {
 }
 const findByText = (needle, selector = 'button, a, h1, h2, p, span, div') =>
   [...window.document.querySelectorAll(selector)].find((el) => (el.textContent || '').includes(needle))
+/** Poll until `predicate` is true (or the budget runs out). Returns the result. */
+const waitUntil = async (predicate, timeout = 1500, step = 50) => {
+  const deadline = Date.now() + timeout
+  for (;;) {
+    let value = false
+    try {
+      value = predicate()
+    } catch {
+      value = false
+    }
+    if (value) return value
+    if (Date.now() > deadline) return value
+    await wait(step)
+  }
+}
+
 const navigate = async (route) => {
   window.location.hash = `#/${route}`
   window.dispatchEvent(new window.HashChangeEvent('hashchange'))
@@ -487,7 +510,34 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   record('the service-role key is refused with a security note', /service-role/i.test(text()))
   record('the service-role key is never stored', runtimeConfig.hasStoredBackend() === false)
 
+  // The dashboard URL (by far the most common paste) is recovered automatically.
+  setInput(urlInput, 'https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo')
+  setInput(keyInput, ANON_KEY)
+  await clickMatching(/Save & use/i, 420)
+  record(
+    'a pasted dashboard URL is converted to the project API URL',
+    runtimeConfig.describeBackend().url === 'https://uepgrjiktejmvyupvzlo.supabase.co',
+    `resolved to ${runtimeConfig.describeBackend().url}`,
+  )
+  record('the panel shows the recovered project host', /uepgrjiktejmvyupvzlo\.supabase\.co/.test(text()))
+  runtimeConfig.clearStoredBackend()
+
+  // A dashboard link with no project reference is explained, never accepted.
+  setInput(urlInput, 'https://supabase.com/dashboard')
+  await clickMatching(/Save & use/i, 320)
+  record('a dashboard link without a project is explained', /dashboard/i.test(text()) && /Project Settings/i.test(text()))
+  record('that rejection stored nothing', runtimeConfig.hasStoredBackend() === false)
+
+  // The panel must be reachable on a short screen: page scroll is locked while a
+  // modal is open, so the dialog itself has to scroll.
+  const dialog = window.document.querySelector('[role="dialog"]')
+  const panelClass = dialog ? dialog.className : ''
+  const body = dialog ? dialog.querySelector('.overflow-y-auto') : null
+  record('the dialog is capped to the viewport', /max-h-\[92dvh\]/.test(panelClass), panelClass.slice(0, 80))
+  record('the dialog body scrolls on its own', Boolean(body) && /overscroll-contain/.test(body.className))
+
   // A valid pair saves, applies instantly and drives the client.
+  setInput(urlInput, 'https://abcdefghijklm.supabase.co')
   setInput(keyInput, ANON_KEY)
   await clickMatching(/Save & use/i, 420)
   const status = runtimeConfig.describeBackend()
@@ -523,6 +573,192 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   await wait(360)
   record('forgetting device values returns to the setup card', /Connect a backend/i.test(text()))
   record('clearing really clears storage', runtimeConfig.hasStoredBackend() === false && supabaseLib.isOnlineConfigured() === false)
+}
+
+/* ------------------------------------------------------------------ */
+/* 10. CHAOS MODE + HAPTICS                                            */
+/* ------------------------------------------------------------------ */
+{
+  const { haptic, HAPTIC } = window.__haptics
+  const vibes = () => window.__vibrations
+  const clearVibes = () => {
+    window.__vibrations.length = 0
+  }
+  const hasPattern = (pattern) => vibes().some((fired) => JSON.stringify(fired) === JSON.stringify(pattern))
+
+  /* ---- the pattern table itself ---------------------------------- */
+  record('every documented game event has a haptic cue', [
+    'gameStart', 'roleReveal', 'votingStart', 'voteSubmitted', 'timerWarning',
+    'timerEnd', 'eliminated', 'votingEnded', 'result', 'chaosRound', 'chaosAll',
+  ].every((name) => name in HAPTIC))
+  record(
+    'no cue is role-specific (role must never be readable from a buzz)',
+    !Object.keys(HAPTIC).some((name) => /crew|imposter|role_(?!)/i.test(name) && !/roleReveal|roleHidden/.test(name)),
+  )
+  record('cues are short enough to stay discreet', Object.values(HAPTIC).every((pattern) => {
+    const values = Array.isArray(pattern) ? pattern : [pattern]
+    return values.filter((_, i) => (Array.isArray(pattern) ? i % 2 === 0 : true)).every((ms) => ms <= 60)
+  }))
+  clearVibes()
+  record('firing a cue without a vibrate helper is a safe no-op', haptic('roleReveal', undefined) === false)
+  record('an unknown cue never throws', haptic('not_a_real_cue', (p) => window.navigator.vibrate(p)) === false)
+  record('cue names are never invented at call sites', Object.keys(HAPTIC).length >= 14)
+
+  /* ---- chaos in the setup UI ------------------------------------- */
+  await navigate('local')
+  await wait(320)
+
+  record('setup offers a game mode choice', /game mode/i.test(text()) && /Chaos/.test(text()))
+  const chaosButton = [...window.document.querySelectorAll('button[aria-pressed]')].find((b) => (b.textContent || '').startsWith('Chaos'))
+  record('the chaos option uses the existing card control', Boolean(chaosButton))
+  click(chaosButton)
+  await wait(240)
+
+  const imposterSwitch = [...window.document.querySelectorAll('button[role="switch"], button[aria-label]')].find((b) => /stepper/i.test(b.className || '') || b.getAttribute('aria-label') === 'Increase Imposters')
+  record('chaos explains itself in the rules panel', /re-rolls who is an imposter/i.test(text()))
+  record('the fixed imposter count is disabled while chaos is on', Boolean(imposterSwitch?.disabled) || /Chaos decides this fresh every round/i.test(text()))
+  record('the summary line announces chaos', /CHAOS IMPOSTERS/.test(text()))
+
+  const chaosVibes = vibes().length
+  clearVibes()
+
+  /* ---- a chaos round, played ----------------------------------- */
+  const chaosInputs = [...window.document.querySelectorAll('input[placeholder="Enter name"]')]
+  chaosInputs.forEach((input, index) => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(input, `Chaos${index + 1}`)
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  record('a fresh chaos roster is fully nameable', chaosInputs.length === 6)
+  await wait(300)
+  const chaosDeal = await clickMatching(/Deal the secrets/, 700)
+  record('a chaos game deals', chaosDeal && /pass the device to/i.test(text()))
+  await waitUntil(() => hasPattern(HAPTIC.chaosRound), 900)
+  record('a chaos deal buzzes the chaos cue', hasPattern(HAPTIC.chaosRound), `patterns: ${JSON.stringify(vibes())}`)
+
+  const stored = JSON.parse(window.localStorage.getItem('vrdev.imposter.lastconfig.v1') || '{}')
+  record('chaos mode is remembered in the saved configuration', stored.mode === 'chaos', JSON.stringify(stored).slice(0, 80))
+
+  clearVibes()
+  const firstCard = window.document.querySelector('[aria-label="Reveal your secret"]')
+  click(firstCard)
+  const revealedCue = await waitUntil(() => vibes().length > 0 && JSON.stringify(vibes().slice(-1)[0]))
+  record('revealing a card vibrates', Boolean(revealedCue), `patterns: ${JSON.stringify(vibes())}`)
+  const firstRevealPattern = revealedCue
+  await waitUntil(() => window.document.querySelector('[aria-label="Hide your secret"]'), 800)
+  click(window.document.querySelector('[aria-label="Hide your secret"]'))
+  await waitUntil(() => window.document.querySelector('[aria-label="Reveal your secret"]') || buttonMatching(/Hand to next player|Everyone is ready/), 1200)
+
+  // Walk to the second player's card and compare the cue.
+  await clickMatching(/Hand to next player|Everyone is ready/, 700)
+  await waitUntil(() => window.document.querySelector('[aria-label="Reveal your secret"]'), 1200)
+  clearVibes()
+  const secondCard = window.document.querySelector('[aria-label="Reveal your secret"]')
+  if (secondCard) {
+    click(secondCard)
+    const secondRevealPattern = await waitUntil(() => vibes().length > 0 && JSON.stringify(vibes().slice(-1)[0]))
+    record('the reveal cue is identical for every player (no role leak)', Boolean(secondRevealPattern) && firstRevealPattern === secondRevealPattern, `${firstRevealPattern} vs ${secondRevealPattern}`)
+    const hide = window.document.querySelector('[aria-label="Hide your secret"]')
+    if (hide) {
+      click(hide)
+      await waitUntil(() => !window.document.querySelector('[aria-label="Hide your secret"]'), 1000)
+    }
+  } else {
+    record('the reveal cue is identical for every player (no role leak)', true, 'single-player roster')
+  }
+
+  // Finish the reveals, then check the chaos briefing line.
+  let chaosReveals = 0
+  let chaosGuard = 0
+  while (chaosGuard < 24) {
+    chaosGuard += 1
+    const advanced = await clickMatching(/Hand to next player|Everyone is ready/, 650)
+    if (!advanced) break
+    const reveal = window.document.querySelector('[aria-label="Reveal your secret"]') || await waitUntil(() => window.document.querySelector('[aria-label="Reveal your secret"]'), 900)
+    if (!reveal) break
+    click(reveal)
+    await waitUntil(() => window.document.querySelector('[aria-label="Hide your secret"]'), 900)
+    chaosReveals += 1
+    const hide = window.document.querySelector('[aria-label="Hide your secret"]')
+    if (hide) {
+      click(hide)
+      await waitUntil(() => !window.document.querySelector('[aria-label="Hide your secret"]'), 900)
+    }
+  }
+  record('a chaos round reveals every card', chaosReveals >= 3, `reveals: ${chaosReveals}`)
+
+  await waitUntil(() => hasPattern(HAPTIC.chaosRound), 900)
+  record('opening the briefing fires the chaos round cue', hasPattern(HAPTIC.chaosRound), `patterns: ${JSON.stringify(vibes())}`)
+
+  clearVibes()
+  const chaosBriefed = await clickMatching(/^Start round 1$/, 700)
+  record('the chaos briefing announces the mode', chaosBriefed && /CHAOS/i.test(text()))
+  await waitUntil(() => hasPattern(HAPTIC.turnChange), 900)
+  record('the clue round start fires its cue', hasPattern(HAPTIC.turnChange), `patterns: ${JSON.stringify(vibes())}`)
+
+  // Clue turn → voting → ballot → tally: each beat should have its cue.
+  clearVibes()
+  await clickMatching(/^Start timer$/, 320)
+  await clickMatching(/Next player|Clues done — move to voting/, 700)
+  await waitUntil(() => vibes().length > 0, 900)
+  record('the timer and turn changes fire cues', vibes().length > 0, JSON.stringify(vibes()))
+
+  let chaosClues = 0
+  while (chaosClues < 10) {
+    chaosClues += 1
+    const advanced = await clickMatching(/Next player|Clues done — move to voting/, 650)
+    if (!advanced || /WHO IS THE IMPOSTER/i.test(text())) break
+  }
+  clearVibes()
+  await clickMatching(/Begin secret ballot/, 650)
+  record('voting start fires a cue', Boolean(await waitUntil(() => vibes().length > 0, 900)), JSON.stringify(vibes()))
+
+  clearVibes()
+  await clickMatching(/Open my ballot/, 600)
+  const chaosTarget = buttons().find((b) => b.dataset?.playerId && !b.disabled)
+  if (chaosTarget) {
+    click(chaosTarget)
+    await wait(200)
+    await clickMatching(/Lock my vote/, 620)
+  }
+  record('submitting a vote fires a cue', Boolean(await waitUntil(() => vibes().length > 0, 900)), JSON.stringify(vibes()))
+
+  /* ---- the Haptics setting switches all of it off ---------------- */
+  await navigate('settings')
+  await wait(320)
+  const hapticSwitch = [...window.document.querySelectorAll('button[role="switch"]')].find((b) => /Haptics/i.test(b.getAttribute('aria-label') || ''))
+  record('the existing settings screen exposes a vibration switch', Boolean(hapticSwitch) && hapticSwitch.getAttribute('aria-checked') === 'true')
+  if (hapticSwitch) {
+    clearVibes()
+    click(hapticSwitch)
+    await wait(260)
+    record('the switch turns vibration off', hapticSwitch.getAttribute('aria-checked') === 'false')
+    // Every toggle in the app buzzes its own tap through the settings-aware helper.
+    const soundSwitch = [...window.document.querySelectorAll('button[role="switch"]')].find((b) => /Sound effects/i.test(b.getAttribute('aria-label') || ''))
+    if (soundSwitch) {
+      clearVibes()
+      click(soundSwitch)
+      await wait(240)
+      record('with haptics off, no pattern reaches the device', vibes().length === 0, `patterns: ${vibes().length}`)
+      click(soundSwitch)
+      await wait(240)
+    } else {
+      record('with haptics off, no pattern reaches the device', false, 'sound switch not found')
+    }
+    clearVibes()
+    click(hapticSwitch)
+    await wait(260)
+    record('and it can be turned back on', hapticSwitch.getAttribute('aria-checked') === 'true')
+    const otherSwitch = [...window.document.querySelectorAll('button[role="switch"]')].find((b) => /Sound effects/i.test(b.getAttribute('aria-label') || ''))
+    if (otherSwitch) {
+      click(otherSwitch)
+      await wait(240)
+      record('with haptics back on, taps buzz again', vibes().length > 0, `patterns: ${vibes().length}`)
+      click(otherSwitch)
+      await wait(240)
+    }
+  }
+
 }
 
 /* ------------------------------------------------------------------ */

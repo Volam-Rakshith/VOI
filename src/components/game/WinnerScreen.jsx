@@ -10,6 +10,7 @@ import { Button } from '../ui/Button.jsx'
 import { Badge, Glyph } from '../ui/Layout.jsx'
 import { crewVictoryCanvases, imposterVictoryCanvases, stopConfetti } from '../../lib/confetti.js'
 import { playSfx } from '../../lib/sound.js'
+import { haptic } from '../../lib/haptics.js'
 import { useSettings } from '../../context/SettingsContext.jsx'
 
 export function WinnerScreen({
@@ -25,7 +26,7 @@ export function WinnerScreen({
   children,
 }) {
   const crewWon = winner === 'crew'
-  const { motionOff, settings } = useSettings()
+  const { motionOff, settings, vibrate } = useSettings()
   const celebrated = useRef(false)
 
   useEffect(() => {
@@ -39,10 +40,31 @@ export function WinnerScreen({
       imposterVictoryCanvases(intensity)
       playSfx('defeat')
     }
+    /* Same cue whoever won — the verdict is on screen, not in the pocket. */
+    const allImposters = players.length > 0 && players.every((p) => p.role === 'imposter')
+    haptic(allImposters ? 'chaosResult' : 'result', vibrate)
     return () => stopConfetti()
-  }, [crewWon, settings.intensity])
+  }, [crewWon, settings.intensity, players, vibrate])
 
   const revealed = useMemo(() => players.filter((p) => p.role), [players])
+
+  /**
+   * The sub-headline must stay true for any imposter count: a crew win does not
+   * always mean *every* imposter was caught (classic wins on one), and an
+   * imposter win can still follow a successful catch (manhunt).
+   */
+  const verdict = useMemo(() => {
+    const imposters = players.filter((p) => p.role === 'imposter')
+    const yetAlive = imposters.filter((p) => p.alive !== false).length
+    const caught = imposters.length - yetAlive
+    if (crewWon) {
+      if (imposters.length <= 1) return 'THE IMPOSTER WAS CAUGHT'
+      return caught === imposters.length
+        ? `ALL ${imposters.length} IMPOSTERS CAUGHT`
+        : `${caught} OF ${imposters.length} IMPOSTERS CAUGHT`
+    }
+    return caught > 0 ? 'NOT ENOUGH — THEY SURVIVED' : 'YOU WERE FOOLED'
+  }, [players, crewWon])
 
   return (
     <motion.div
@@ -84,7 +106,7 @@ export function WinnerScreen({
           {crewWon ? 'TEAM WINS' : 'IMPOSTER WINS'}
         </h1>
         <p className="mt-3 font-display text-[12.5px] tracking-[.2em] text-violet-100/85">
-          {crewWon ? 'THE IMPOSTER WAS CAUGHT' : 'YOU WERE FOOLED'}
+          {verdict}
         </p>
         {reason && <p className="mx-auto mt-2 max-w-sm text-[12.5px] leading-relaxed text-violet-200/60">{reason}</p>}
       </motion.div>

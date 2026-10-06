@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { LIMITS, WIN_RULES } from '../../data/constants.js'
+import { GAME_MODES, LIMITS, WIN_RULES } from '../../data/constants.js'
 import { Button } from '../ui/Button.jsx'
 import { Field, SegmentedControl, Stepper, Toggle } from '../ui/Controls.jsx'
 import { Badge, ScreenHeader, ScreenShell } from '../ui/Layout.jsx'
@@ -95,6 +95,8 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
   }
 
   const activeWinRule = WIN_RULES.find((rule) => rule.id === config.winRule)
+  const activeMode = GAME_MODES.find((mode) => mode.id === config.mode)
+  const chaos = config.mode === 'chaos'
 
   return (
     <ScreenShell>
@@ -142,10 +144,11 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
           <PanelBody className="space-y-4">
             <Stepper
               label="Imposters"
-              hint={`Maximum ${maxImposters} with ${names.length} players`}
-              value={effectiveImposters}
+              hint={chaos ? 'Chaos decides this fresh every round' : `Maximum ${maxImposters} with ${names.length} players`}
+              value={chaos ? 1 : effectiveImposters}
               min={1}
               max={Math.min(maxImposters, MAX_IMPOSTERS)}
+              disabled={chaos}
               onChange={(value) => setConfig((current) => ({ ...current, imposterCount: value }))}
             />
 
@@ -198,6 +201,31 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
             </div>
 
             <div>
+              <p className="label mb-2">game mode</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {GAME_MODES.map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setConfig((current) => ({ ...current, mode: mode.id }))}
+                    aria-pressed={config.mode === mode.id}
+                    className={`rounded-xl border px-3.5 py-3 text-left transition ${
+                      config.mode === mode.id
+                        ? mode.id === 'chaos'
+                          ? 'border-magenta-neon/60 bg-fuchsia-500/12 shadow-neon-magenta'
+                          : 'border-cyan-300/60 bg-cyan-500/12 shadow-neon-cyan'
+                        : 'border-violet-400/25 bg-black/30 hover:border-violet-300/45'
+                    }`}
+                  >
+                    <span className="font-display text-[12px] tracking-[.12em] text-violet-50">{mode.label}</span>
+                    <span className="mt-1 block text-[11.5px] leading-snug text-violet-200/60">{mode.short}</span>
+                  </button>
+                ))}
+              </div>
+              {activeMode && <p className="mt-2 text-[11.5px] leading-relaxed text-violet-200/50">{activeMode.description}</p>}
+            </div>
+
+            <div>
               <p className="label mb-2">win rule</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 {WIN_RULES.map((rule) => (
@@ -218,6 +246,11 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
                 ))}
               </div>
               {activeWinRule && <p className="mt-2 text-[11.5px] leading-relaxed text-violet-200/50">{activeWinRule.description}</p>}
+              {chaos && (
+                <p className="mt-1.5 text-[11.5px] leading-relaxed text-cyan-200/75">
+                  Chaos overrides the imposter count: each round re-rolls who is an imposter, and the table may even be all imposters.
+                </p>
+              )}
             </div>
 
             <button
@@ -275,7 +308,9 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
         <div className="glass-strong clip-hud flex flex-col gap-2 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="font-display text-[11.5px] tracking-[.14em] text-violet-50">
-              {names.length} PLAYERS · {effectiveImposters} IMPOSTER{effectiveImposters > 1 ? 'S' : ''} · {config.turnSeconds}s
+              {names.length} PLAYERS ·{' '}
+              {chaos ? 'CHAOS IMPOSTERS' : `${effectiveImposters} IMPOSTER${effectiveImposters > 1 ? 'S' : ''}`} ·{' '}
+              {config.turnSeconds}s
             </p>
             <p className="mt-0.5 truncate text-[11px] text-violet-200/55">
               {config.categoryIds.includes('random')

@@ -8,7 +8,7 @@ export const BRAND = {
   game: 'IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.0',
+  version: '1.0.5',
 }
 
 export const LIMITS = {
@@ -38,7 +38,7 @@ export const WIN_RULES = [
     id: 'classic',
     label: 'Classic',
     short: 'One vote decides',
-    description: 'Vote once. Catch an imposter and the crew wins instantly — accuse wrongly and the imposters take it.',
+    description: 'Catch an imposter and the crew wins instantly — even when several are hiding. Accuse a crew member instead and the imposters take it.',
   },
   {
     id: 'survival',
@@ -46,6 +46,27 @@ export const WIN_RULES = [
     short: 'Survive the rounds',
     description:
       'Wrong accusations eliminate a crew member and play continues. Crew wins by removing every imposter; imposters win once they match the crew.',
+  },
+]
+
+/**
+ * Role-assignment modes.
+ * `normal` deals the fixed imposter count; `chaos` re-rolls the whole
+ * assignment every round — one imposter, several, many, or the entire table.
+ */
+export const GAME_MODES = [
+  {
+    id: 'normal',
+    label: 'Normal',
+    short: 'Fixed imposters',
+    description: 'The imposter count you chose is dealt every round — always a strict minority of the table.',
+  },
+  {
+    id: 'chaos',
+    label: 'Chaos',
+    short: 'Anyone could be one',
+    description:
+      'Every round re-rolls the imposters at random: one, several, many — or the entire table. Nobody is safe, not even you.',
   },
 ]
 

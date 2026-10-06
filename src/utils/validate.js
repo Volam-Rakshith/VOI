@@ -140,10 +140,13 @@ export function validateGameConfig(cfg = {}) {
   const winRule = ['classic', 'survival'].includes(cfg.winRule) ? cfg.winRule : 'classic'
   const voteMode = ['secret', 'open'].includes(cfg.voteMode) ? cfg.voteMode : 'secret'
   const clueOrder = ['random', 'seat'].includes(cfg.clueOrder) ? cfg.clueOrder : 'random'
+  /* Chaos re-rolls the count every round, so the fixed value is only a fallback. */
+  const mode = cfg.mode === 'chaos' ? 'chaos' : 'normal'
+  if (mode === 'chaos') delete errors.imposterCount
 
   return {
     ok: Object.keys(errors).length === 0,
     errors,
-    config: { ...cfg, playerCount, imposterCount, turnSeconds, rounds, categoryIds, difficulty, winRule, voteMode, clueOrder },
+    config: { ...cfg, playerCount, imposterCount, turnSeconds, rounds, categoryIds, difficulty, winRule, voteMode, clueOrder, mode },
   }
 }

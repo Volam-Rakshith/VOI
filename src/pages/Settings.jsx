@@ -66,8 +66,8 @@ export function Settings({ onNavigate }) {
               onChange={(value) => updateSettings({ reducedMotion: value })}
             />
             <Toggle
-              label="Haptics"
-              hint="Short vibration on supported phones"
+              label="Haptics (vibration)"
+              hint="Short vibration on game events — reveals, votes, the timer and the result. Silently skipped where unsupported."
               checked={settings.haptics}
               onChange={(value) => updateSettings({ haptics: value })}
             />
@@ -92,6 +92,33 @@ export function Settings({ onNavigate }) {
                 Controls particle density, glow strength and screen effects. Set to Calm on older phones.
               </p>
             </div>
+          </PanelBody>
+        </Panel>
+
+        <Panel annotated>
+          <PanelHeader
+            title="CUSTOM WORDS & CATEGORIES"
+            subtitle="Your own words live in the BLACK BOX panel"
+            right={<Badge tone="violet">{stats.words} words</Badge>}
+          />
+          <PanelBody className="space-y-3">
+            <p className="text-[12.5px] leading-relaxed text-violet-100/75">
+              Add, edit, import and export words and categories — then pick them in the game setup.
+            </p>
+            <ol className="ml-4 list-decimal space-y-1 text-[12.5px] leading-relaxed text-violet-100/70">
+              <li>Return to the main menu.</li>
+              <li>
+                Tap the <strong className="text-violet-50">top-right corner</strong> of the screen three times quickly.
+              </li>
+              <li>Enter the access phrase, then open WORD DATABASE.</li>
+            </ol>
+            <p className="text-[11.5px] leading-relaxed text-violet-200/50">
+              New categories appear in the setup screen's category list immediately, and everything is stored on this
+              device. The panel stays hidden from players who do not know the phrase.
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => onNavigate?.(ROUTES.home)}>
+              Back to menu to open it
+            </Button>
           </PanelBody>
         </Panel>
 

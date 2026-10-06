@@ -17,6 +17,7 @@ import { StatusStrip, TurnBanner, VoteGrid, VoteTally } from './PlayerBits.jsx'
 import { WinnerScreen } from './WinnerScreen.jsx'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
+import { haptic } from '../../lib/haptics.js'
 
 /* ------------------------------------------------------------------ */
 /* Shared frame                                                        */
@@ -45,6 +46,7 @@ function PhaseFrame({ state, view, onQuit, children, phaseLabel }) {
 /* 1. Card hand-off + reveal                                           */
 /* ------------------------------------------------------------------ */
 export function HandoffPhase({ state, view, actions, showDecoy }) {
+  const { vibrate } = useSettings()
   const player = view.revealPlayer
   const [toggled, setToggled] = useState(false)
   const revealed = state.phase === GAME_PHASES.REVEAL
@@ -85,9 +87,12 @@ export function HandoffPhase({ state, view, actions, showDecoy }) {
           onToggle={(next) => {
             if (next) {
               playSfx('cardReveal')
+              // One identical cue for every player: a buzz must never reveal a role.
+              haptic('roleReveal', vibrate)
               actions.reveal()
             } else {
               playSfx('cardHide')
+              haptic('roleHidden', vibrate)
               setToggled(true)
               actions.hide()
             }
@@ -277,6 +282,7 @@ export function VoteHandoffPhase({ state, view, actions }) {
 }
 
 export function VoteCastPhase({ state, view, actions, onSubmitted, open = false }) {
+  const { vibrate } = useSettings()
   const [selected, setSelected] = useState(null)
   const voter = view.voter
   const candidates = view.alive.filter((player) => (open ? true : player.id !== voter?.id))
@@ -289,6 +295,7 @@ export function VoteCastPhase({ state, view, actions, onSubmitted, open = false 
   const submit = () => {
     if (!selected) return
     playSfx('vote')
+    haptic('voteSubmitted', vibrate)
     if (open) actions.openVote(selected)
     else actions.castVote(voter.id, selected)
     onSubmitted?.()
@@ -330,6 +337,7 @@ export function VoteCastPhase({ state, view, actions, onSubmitted, open = false 
 /* 5. Tally + result                                                   */
 /* ------------------------------------------------------------------ */
 export function TallyPhase({ state, view, actions, muted }) {
+  const { vibrate } = useSettings()
   const [revealed, setRevealed] = useState(false)
   const totalVotes = Object.keys(state.votes).length
 
@@ -358,6 +366,7 @@ export function TallyPhase({ state, view, actions, muted }) {
               className="max-w-sm"
               onClick={() => {
                 playSfx(muted ? 'confirm' : 'reveal')
+                haptic('eliminated', vibrate)
                 setRevealed(true)
                 actions.resolve()
               }}

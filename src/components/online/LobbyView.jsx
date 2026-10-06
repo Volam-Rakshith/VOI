@@ -27,6 +27,7 @@ export function LobbyView({ online, onExit }) {
   const categories = useMemo(() => categoryOptions(bank), [bank])
 
   const readyCount = room.players.filter((p) => p.isHost || p.ready).length
+  const chaos = room.config?.mode === 'chaos'
   const canStart = room.players.length >= MIN_ONLINE && room.players.every((p) => p.isHost || p.ready)
   const isHost = view?.isHost
 
@@ -89,6 +90,7 @@ export function LobbyView({ online, onExit }) {
               <Badge tone="muted">{room.config.categoryLabel}</Badge>
               <Badge tone="muted">{room.config.difficulty}</Badge>
               <Badge tone="muted">{room.config.turnSeconds}s turns</Badge>
+              <Badge tone={chaos ? 'magenta' : 'muted'}>{chaos ? 'chaos mode' : 'normal mode'}</Badge>
               <Badge tone="muted">{room.config.winRule === 'survival' ? 'manhunt' : 'classic'}</Badge>
               <Badge tone="muted">{room.config.rounds} round{room.config.rounds === 1 ? '' : 's'}</Badge>
             </div>
@@ -97,7 +99,8 @@ export function LobbyView({ online, onExit }) {
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 overflow-hidden border-t border-violet-500/20 pt-3">
                 <Stepper
                   label="Imposters"
-                  value={room.config.imposterCount}
+                  disabled={chaos}
+                  value={chaos ? 1 : room.config.imposterCount}
                   min={1}
                   max={Math.max(1, Math.floor((room.players.length - 1) / 2))}
                   onChange={async (value) => {
@@ -162,6 +165,19 @@ export function LobbyView({ online, onExit }) {
                     { value: 'medium', label: 'Sharp' },
                     { value: 'hard', label: 'Vicious' },
                     { value: 'mixed', label: 'Mixed' },
+                  ]}
+                />
+                <SegmentedControl
+                  size="sm"
+                  label="game mode"
+                  value={room.config.mode || 'normal'}
+                  onChange={async (value) => {
+                    const result = await actions.updateConfig({ mode: value })
+                    if (result?.ok === false) toast.error(result.error)
+                  }}
+                  options={[
+                    { value: 'normal', label: 'Normal' },
+                    { value: 'chaos', label: 'Chaos' },
                   ]}
                 />
                 <SegmentedControl

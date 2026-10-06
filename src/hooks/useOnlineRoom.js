@@ -35,10 +35,17 @@ import {
   terminateRoom,
   writeSecrets,
 } from '../lib/onlineService.js'
-import { assignRoles } from '../lib/gameEngine.js'
+import { assignRolesFor } from '../lib/gameEngine.js'
 import { buildClueOrder, computeResult, isHostDriver, phaseView, revealProgress, turnPlayer, voteProgress } from '../lib/onlineGame.js'
 import { normalizeRoom } from '../lib/onlineService.js'
 import { readJSON, remove, writeJSON } from '../utils/storage.js'
+
+/**
+ * Reserved key inside the PRIVATE `secrets` map that holds the round's word.
+ * It is never a player id, so it can never be dealt to a card; the host reads it
+ * back to re-deal chaos roles without the word ever entering public room state.
+ */
+const SECRET_META_KEY = '__chaos_meta__'
 
 const HEARTBEAT_MS = 15000
 const RECONNECT_DELAYS = [1200, 2400, 4800, 8000, 12000, 20000]
@@ -471,13 +478,14 @@ export function useOnlineRoom(bank) {
           })
         : { word: 'Mystery', categoryName: 'Random', difficulty: 'medium', decoy: null }
 
-      const { roles } = assignRoles(lobby.length, room.config.imposterCount)
+      const { roles } = assignRolesFor(room.config, lobby.length)
       const roleMap = {}
       lobby.forEach((p, index) => {
         roleMap[p.id] = roles[index]
       })
 
       const secrets = {}
+      secrets[SECRET_META_KEY] = { word: picked.word, decoy: picked.decoy || null, categoryName: picked.categoryName, difficulty: picked.difficulty }
       lobby.forEach((p) => {
         secrets[p.id] = {
           role: roleMap[p.id],
@@ -580,23 +588,61 @@ export function useOnlineRoom(bank) {
     if (!code || !room?.game) return
     if (!isHostDriver(room, playerId)) return
     const aliveIds = room.players.filter((p) => !(room.game.eliminated || []).includes(p.id)).map((p) => p.id)
+
+    const advance = {
+      ...room.game,
+      round: (room.game.round || 1) + 1,
+      phase: ONLINE_PHASES.REVEAL,
+      revealedBy: [],
+      clueOrder: buildClueOrder(aliveIds),
+      clueIndex: 0,
+      turnPlayerId: null,
+      votes: {},
+      submitted: [],
+      lastResult: null,
+      timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+    }
+
+    /* Chaos re-rolls roles for every player still in play — the previous
+       assignment is never reused. Eliminated players keep the role they were
+       judged on so the end-of-game reveal stays truthful. */
+    if (room.config?.mode === 'chaos' && aliveIds.length) {
+      // One small read of the reserved entry — never the whole private map.
+      const meta = await fetchSecret({ code, playerId: SECRET_META_KEY })
+        .then(({ secret: payload }) => payload || null)
+        .catch(() => null)
+      const word = meta?.word || null
+
+      // Without the round's word a re-roll would leave the crew wordless, so
+      // keep the existing assignment rather than break the round.
+      if (word) {
+        const { roles } = assignRolesFor(room.config, aliveIds.length)
+        const nextSecrets = {}
+        aliveIds.forEach((id, index) => {
+          const role = roles[index]
+          nextSecrets[id] = {
+            role,
+            word: role === ROLES.IMPOSTER ? null : word,
+            decoy: role === ROLES.IMPOSTER ? meta?.decoy || null : null,
+            categoryName: meta?.categoryName || null,
+            difficulty: meta?.difficulty || null,
+          }
+        })
+        nextSecrets[SECRET_META_KEY] = meta
+
+        const { room: updated } = await writeSecrets({
+          code,
+          secrets: nextSecrets,
+          roomPatch: { game: advance },
+        })
+        if (updated) applyRoom(updated)
+        return
+      }
+    }
+
     const { room: updated } = await patchRoom({
       code,
-      patch: {
-        game: {
-          ...room.game,
-          round: (room.game.round || 1) + 1,
-          phase: ONLINE_PHASES.REVEAL,
-          revealedBy: [],
-          clueOrder: buildClueOrder(aliveIds),
-          clueIndex: 0,
-          turnPlayerId: null,
-          votes: {},
-          submitted: [],
-          lastResult: null,
-          timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
-        },
-      },
+      patch: { game: advance },
     })
     if (updated) applyRoom(updated)
   }, [room, applyRoom])
@@ -609,12 +655,13 @@ export function useOnlineRoom(bank) {
     setBusy('starting')
     try {
       const picked = bank?.pick ? bank.pick({ categoryIds: room.config.categoryIds, difficulty: room.config.difficulty }) : { word: 'Mystery' }
-      const { roles } = assignRoles(room.players.length, room.config.imposterCount)
+      const { roles } = assignRolesFor(room.config, room.players.length)
       const roleMap = {}
       room.players.forEach((p, index) => {
         roleMap[p.id] = roles[index]
       })
       const secrets = {}
+      secrets[SECRET_META_KEY] = { word: picked.word, decoy: picked.decoy || null, categoryName: picked.categoryName, difficulty: picked.difficulty }
       room.players.forEach((p) => {
         secrets[p.id] = {
           role: roleMap[p.id],

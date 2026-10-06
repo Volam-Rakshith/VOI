@@ -50,6 +50,15 @@ const LOCAL_RE = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i
 export function normalizeBackendUrl(input) {
   let raw = trim(input)
   if (!raw) return ''
+
+  /*
+   * The most common paste mistake by far: copying the browser address from the
+   * Supabase dashboard (https://supabase.com/dashboard/project/<ref>/...) instead
+   * of the project API URL. The ref is right there in the path, so recover it.
+   */
+  const dashboard = /(?:https?:\/\/)?(?:app\.)?supabase\.(?:com|in)\/dashboard\/project\/([a-z0-9-]{4,})/i.exec(raw)
+  if (dashboard) return `https://${dashboard[1]}.supabase.co`
+
   if (!/^https?:\/\//i.test(raw)) {
     // A bare project ref (e.g. "abcdefghijklm") or a bare host.
     if (/^[a-z0-9-]+$/i.test(raw)) raw = `https://${raw}.supabase.co`
@@ -97,6 +106,13 @@ export function validateBackendUrl(input) {
   }
   if (!HOST_RE.test(parsed.hostname) && !LOCAL_RE.test(parsed.host)) {
     return { ok: false, error: 'That host name is not valid. It usually looks like abcdefgh.supabase.co' }
+  }
+  if (/^(?:app\.)?supabase\.(?:com|in)$/i.test(parsed.hostname)) {
+    return {
+      ok: false,
+      error:
+        'That is the Supabase dashboard, not your project API. Open Project Settings → API and copy the Project URL — it looks like https://<project-ref>.supabase.co',
+    }
   }
   return { ok: true, value }
 }

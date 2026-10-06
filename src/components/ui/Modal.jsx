@@ -80,11 +80,11 @@ export function Modal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: motionOff ? 0 : 18, scale: motionOff ? 1 : 0.98 }}
             transition={motionOff ? { duration: 0 } : { type: 'spring', stiffness: 340, damping: 30 }}
-            className={`glass-strong clip-hud relative w-full ${widths[size] || widths.md} overflow-hidden`}
+            className={`glass-strong clip-hud relative flex max-h-[92dvh] w-full flex-col overflow-hidden ${widths[size] || widths.md}`}
           >
             <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-neon/70 to-transparent" />
             {(title || subtitle) && (
-              <div className="px-5 pb-3 pt-5">
+              <div className="shrink-0 px-5 pb-3 pt-5">
                 {title && (
                   <h2 id={labelledBy} className="font-display text-[15px] tracking-[.16em] text-violet-50">
                     {title}
@@ -93,8 +93,19 @@ export function Modal({
                 {subtitle && <p className="mt-1 text-[12.5px] leading-relaxed text-violet-200/60">{subtitle}</p>}
               </div>
             )}
-            <div className="px-5 pb-2">{children}</div>
-            {footer && <div className="flex flex-col-reverse gap-2 px-5 pb-5 pt-3 sm:flex-row sm:justify-end">{footer}</div>}
+            {/*
+              The body scrolls on its own: the page behind is scroll-locked while a
+              modal is open, so without this a tall panel is simply unreachable on a
+              short screen or a phone in landscape.
+            */}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-2 [-webkit-overflow-scrolling:touch]">
+              {children}
+            </div>
+            {footer && (
+              <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-violet-400/10 px-5 pb-5 pt-3 sm:flex-row sm:justify-end">
+                {footer}
+              </div>
+            )}
           </motion.div>
         </div>
       )}

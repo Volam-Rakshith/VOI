@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG = {
   winRule: 'classic',
   voteMode: 'secret',
   clueOrder: 'random',
+  mode: 'normal',
 }
 
 export const DEFAULT_NAMES = ['', '', '', '', '', '']
@@ -38,5 +39,6 @@ export function sanitizeConfig(config) {
     winRule: ['classic', 'survival'].includes(config.winRule) ? config.winRule : 'classic',
     voteMode: ['secret', 'open'].includes(config.voteMode) ? config.voteMode : 'secret',
     clueOrder: ['random', 'seat'].includes(config.clueOrder) ? config.clueOrder : 'random',
+    mode: ['normal', 'chaos'].includes(config.mode) ? config.mode : 'normal',
   }
 }

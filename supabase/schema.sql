@@ -2,7 +2,12 @@
 --  IMPOSTER — by VR DEVELOPMENTS
 --  Supabase schema for ONLINE ROOMS + optional shared word database.
 --
---  Run this once in:  Supabase Dashboard → SQL Editor → New query → Run
+--  Run this in:  Supabase Dashboard → SQL Editor → New query → Run
+--
+--  SCHEMA VERSION 1.0.5
+--  The version is also written into the database, so supabase/verify.sql can
+--  tell you which file was applied. Safe to run MORE THAN ONCE, and safe on a
+--  partially set-up project: nothing is dropped and no room data is touched.
 --
 --  Design notes
 --  ------------
@@ -41,6 +46,9 @@ create table if not exists public.imposter_rooms (
   constraint imposter_rooms_status_ok check (status in ('lobby','playing','ended','terminated'))
 );
 
+-- Which file was applied last. supabase/verify.sql reads this back.
+comment on table public.imposter_rooms is 'IMPOSTER schema v1.0.5 — safe to re-run';
+
 create index if not exists imposter_rooms_updated_idx on public.imposter_rooms (updated_at desc);
 create index if not exists imposter_rooms_status_idx  on public.imposter_rooms (status);
 
@@ -49,6 +57,8 @@ create table if not exists public.imposter_words (
   payload    jsonb       not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
+
+comment on table public.imposter_words is 'IMPOSTER schema v1.0.5 — shared word database';
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security
@@ -112,6 +122,7 @@ set search_path = public
 as $$
 declare
   v_row      public.imposter_rooms;
+  v_room     jsonb;
   v_players  jsonb;
   v_player   jsonb;
   v_rejoined boolean := false;
@@ -188,7 +199,9 @@ begin
    where code = upper(p_code)
   returning room into v_room;
 
-  return jsonb_build_object('room', v_row.room, 'playerId', v_player->>'id', 'rejoined', v_rejoined);
+  -- Return the room as it is AFTER the update: v_row is the pre-update snapshot,
+  -- so sending it back would omit the player who just joined.
+  return jsonb_build_object('room', coalesce(v_room, v_row.room), 'playerId', v_player->>'id', 'rejoined', v_rejoined);
 end;
 $$;
 
@@ -397,5 +410,30 @@ grant execute on function public.imposter_set_secrets(text, jsonb, jsonb)       
 grant execute on function public.imposter_submit_vote(text, text, text, integer) to anon, authenticated;
 grant execute on function public.imposter_terminate_room(text)                   to anon, authenticated;
 
+-- Table privileges. Supabase grants these to anon/authenticated on new tables in
+-- `public` by default; stating them here means a project with customised default
+-- privileges still works, and row access stays governed by the policies above.
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on public.imposter_rooms to anon, authenticated;
+grant select on public.imposter_words to anon, authenticated;
+grant insert, update, delete on public.imposter_words to authenticated;
+
 -- Make sure realtime streams room changes to subscribed clients.
-alter publication supabase_realtime add table public.imposter_rooms;
+-- Guarded so this whole file can be re-run safely at any time.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'imposter_rooms'
+  ) then
+    alter publication supabase_realtime add table public.imposter_rooms;
+    raise notice 'Realtime: imposter_rooms added to supabase_realtime.';
+  else
+    raise notice 'Realtime: imposter_rooms is already streamed.';
+  end if;
+exception
+  when undefined_object then
+    raise notice 'Realtime: publication supabase_realtime not found — enable it under Database -> Replication.';
+end $$;

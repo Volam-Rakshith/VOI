@@ -4,9 +4,9 @@
  * shared clue timer, per-player secret ballots and the result reveal.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ROLES } from '../../data/constants.js'
+import { ONLINE_PHASES, ROLES } from '../../data/constants.js'
 import { Button } from '../ui/Button.jsx'
 import { Badge, ProgressDots, ScreenHeader, StatBlock } from '../ui/Layout.jsx'
 import { Panel, PanelBody } from '../ui/Panel.jsx'
@@ -16,6 +16,7 @@ import { CountdownRing } from '../game/CountdownRing.jsx'
 import { SecretCard } from '../game/SecretCard.jsx'
 import { StatusStrip, VoteGrid, VoteTally } from '../game/PlayerBits.jsx'
 import { WinnerScreen } from '../game/WinnerScreen.jsx'
+import { haptic } from '../../lib/haptics.js'
 import { ConnectionBanner } from './ConnectionBanner.jsx'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
@@ -25,10 +26,11 @@ import { roomAlive } from '../../lib/onlineGame.js'
 
 export function OnlineGamePhases({ online, onExit }) {
   const { room, view, session, actions, connection, busy, timerRemaining } = online
-  const { settings } = useSettings()
+  const { settings, vibrate } = useSettings()
   const [confirm, setConfirm] = useState(null)
   const [cardFlipped, setCardFlipped] = useState(false)
   const [seen, setSeen] = useState(false)
+  const hapticPhaseRef = useRef('')
 
   const alive = useMemo(() => roomAlive(room), [room])
   const isHost = view?.isHost
@@ -49,6 +51,41 @@ export function OnlineGamePhases({ online, onExit }) {
     setConfirm(null)
     onExit?.()
   }
+
+  /*
+   * Phase-driven haptics, mirroring pass & play: the cue depends on the moment,
+   * never on anybody's role.
+   */
+  useEffect(() => {
+    const phase = room.game?.phase
+    if (!phase) return
+    const key = `${room.game.round || 1}:${phase}`
+    if (hapticPhaseRef.current === key) return
+    hapticPhaseRef.current = key
+    const chaos = room.config?.mode === 'chaos'
+    switch (phase) {
+      case ONLINE_PHASES.REVEAL:
+        haptic('roleReveal', vibrate)
+        break
+      case ONLINE_PHASES.BRIEFING:
+        haptic(chaos ? 'chaosRound' : 'roundStart', vibrate)
+        break
+      case ONLINE_PHASES.CLUES:
+        haptic('turnChange', vibrate)
+        break
+      case ONLINE_PHASES.VOTING:
+        haptic('votingStart', vibrate)
+        break
+      case ONLINE_PHASES.TALLY:
+        haptic('votingEnded', vibrate)
+        break
+      case ONLINE_PHASES.RESULT:
+        haptic('eliminated', vibrate)
+        break
+      default:
+        break
+    }
+  }, [room.game?.phase, room.game?.round, room.config?.mode, vibrate])
 
   /* ---------------- winner / result ---------------- */
   if (view?.screen === 'terminated') {
@@ -140,6 +177,7 @@ export function OnlineGamePhases({ online, onExit }) {
               onToggle={(next) => {
                 setCardFlipped(next)
                 playSfx(next ? 'cardReveal' : 'cardHide')
+                haptic(next ? 'roleReveal' : 'roleHidden', vibrate)
                 if (next) {
                   setSeen(true)
                   actions.markCardSeen()
@@ -330,6 +368,7 @@ export function OnlineGamePhases({ online, onExit }) {
                   const result = await actions.submitVote(id)
                   if (!result.ok) return
                   playSfx('vote')
+                  haptic('voteSubmitted', vibrate)
                 }}
               />
 

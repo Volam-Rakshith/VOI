@@ -53,6 +53,8 @@ export function pseudoState(room, roles = {}) {
     },
     round: room.game?.round || 1,
     totalRounds: room.config?.rounds || 2,
+    /** Round history, so verdict copy can tell a tie from a wrong accusation. */
+    history: room.game?.history || [],
     players: room.players.map((p) => ({
       ...p,
       role: roles[p.id] || ROLES.CREW,
@@ -77,13 +79,14 @@ export function computeResult(room, roles = {}) {
     ...state,
     players: state.players.map((p) => (p.id === targetId ? { ...p, alive: false } : p)),
   }
-  let winner = determineWinner(afterElimination)
-  if (!winner && state.config.winRule === 'classic') {
-    winner = {
-      team: 'imposter',
-      reason: tally.tie ? 'The vote was split and nobody was accused.' : 'The wrong player was accused.',
-    }
-  }
+  // Classic never returns null (one vote always decides), and a caught imposter
+  // now takes the round however many are in play — see determineWinner.
+  const eliminated = targetId ? [...(room.game?.eliminated || []), targetId] : room.game?.eliminated || []
+  const winner = determineWinner({
+    ...afterElimination,
+    history: [...(state.history || []), { round: state.round, tie: tally.tie, eliminatedId: targetId, wasImposter }],
+    eliminated,
+  })
 
   return {
     round: state.round,
