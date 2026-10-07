@@ -23,9 +23,10 @@ export function Lobby({ onNavigate }) {
   const code = (params.room || '').toUpperCase()
   const [name, setName] = useState('')
   const [error, setError] = useState('')
+  const [checking, setChecking] = useState(false)
 
   const renderSetup = useCallback(
-    ({ configured, busy, joinRoom }) => (
+    ({ configured, busy, joinRoom, onCheckConfig, onConfigure }) => (
       <ScreenShell>
         <ScreenHeader title={`Join ${code || 'a room'}`} eyebrow="online room" onBack={() => onNavigate(ROUTES.online)} />
         <div className="shell-narrow flex-1 space-y-4 pb-6">
@@ -50,9 +51,29 @@ export function Lobby({ onNavigate }) {
                 }}
               />
               {!configured && (
-                <InlineNotice tone="info">
-                  Online rooms need a Supabase project. Add the two public values described in the README and this screen
-                  goes live.
+                <InlineNotice tone="warn">
+                  <strong className="font-bold">Waiting for the room server.</strong> The organiser publishes it once,
+                  for everyone — you never paste anything. It is picked up automatically the moment it is ready.
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={checking}
+                      onClick={async () => {
+                        setChecking(true)
+                        const ok = await Promise.resolve(onCheckConfig ? onCheckConfig() : false)
+                        setChecking(false)
+                        if (!ok) toast.info('Still not published — try again in a moment.')
+                      }}
+                    >
+                      {checking ? 'Checking…' : 'Check again'}
+                    </Button>
+                    {onConfigure ? (
+                      <Button variant="quiet" size="sm" onClick={onConfigure}>
+                        I'm the organiser
+                      </Button>
+                    ) : null}
+                  </div>
                 </InlineNotice>
               )}
               <Button
@@ -79,7 +100,7 @@ export function Lobby({ onNavigate }) {
         </div>
       </ScreenShell>
     ),
-    [code, name, error, onNavigate, toast],
+    [code, name, error, checking, onNavigate, toast],
   )
 
   return <OnlineSession renderSetup={renderSetup} onExit={() => onNavigate(ROUTES.online)} />

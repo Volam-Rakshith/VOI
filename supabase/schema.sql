@@ -4,7 +4,7 @@
 --
 --  Run this in:  Supabase Dashboard → SQL Editor → New query → Run
 --
---  SCHEMA VERSION 1.0.9
+--  SCHEMA VERSION 1.0.10
 --  The version is also written into the database, so supabase/verify.sql can
 --  tell you which file was applied. Safe to run MORE THAN ONCE, and safe on a
 --  partially set-up project: nothing is dropped and no room data is touched.
@@ -47,7 +47,7 @@ create table if not exists public.imposter_rooms (
 );
 
 -- Which file was applied last. supabase/verify.sql reads this back.
-comment on table public.imposter_rooms is 'IMPOSTER schema v1.0.9 — safe to re-run';
+comment on table public.imposter_rooms is 'IMPOSTER schema v1.0.10 — safe to re-run';
 
 -- Room codes are six characters from v1.0.9 on (they were four). The constraint
 -- accepts 4-8 so a room created by an older build still inserts and still
@@ -65,7 +65,7 @@ create table if not exists public.imposter_words (
   updated_at timestamptz not null default now()
 );
 
-comment on table public.imposter_words is 'IMPOSTER schema v1.0.9 — shared word database';
+comment on table public.imposter_words is 'IMPOSTER schema v1.0.10 — shared word database';
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security

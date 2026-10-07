@@ -1,5 +1,5 @@
 /**
- * Logo — the VR DEVELOPMENTS studio mark plus the IMPOSTER wordmark.
+ * Logo — the VR DEVELOPMENTS studio mark plus the VOTE OUT IMPOSTER wordmark.
  * Pure SVG/CSS: no image requests, scales crisply, works offline.
  */
 
@@ -47,6 +47,15 @@ export function Logo({ size = 'md', withStudio = true, className = '' }) {
     lg: { mark: 54, word: 'text-6xl', studio: 'text-xs' },
   }
   const s = scales[size] || scales.md
+  /*
+   * "VOTE OUT IMPOSTER" is three words long, so it is set as stacked lines and
+   * the leading line is stepped down — the widest line stays "IMPOSTER", which
+   * is what the old single-word logo was sized for. A one-word name (or any
+   * future rename) still renders exactly as before.
+   */
+  const words = BRAND.game.split(' ').filter(Boolean)
+  const stacked = words.length > 1
+  const lead = { sm: 'text-[9px]', md: 'text-[11px]', lg: 'text-sm' }[size] || 'text-[11px]'
 
   return (
     <div className={`flex flex-col items-center gap-2 ${className}`}>
@@ -56,7 +65,16 @@ export function Logo({ size = 'md', withStudio = true, className = '' }) {
           <span className={`font-display ${s.studio} tracking-[.42em] text-cyan-200/85`}>{BRAND.studio}</span>
         )}
       </div>
-      <span className={`font-display ${s.word} leading-none tracking-[.1em] text-neon`}>{BRAND.game}</span>
+      {stacked ? (
+        <span className="flex flex-col items-center leading-[.98]">
+          <span className={`font-display ${lead} tracking-[.34em] text-violet-100/85`} aria-hidden="true">
+            {words.slice(0, -1).join(' ')}
+          </span>
+          <span className={`font-display ${s.word} tracking-[.1em] text-neon`}>{words[words.length - 1]}</span>
+        </span>
+      ) : (
+        <span className={`font-display ${s.word} leading-none tracking-[.1em] text-neon`}>{BRAND.game}</span>
+      )}
     </div>
   )
 }

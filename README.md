@@ -1,4 +1,4 @@
-# IMPOSTER
+# VOTE OUT IMPOSTER
 
 **A cinematic social deduction party game — by VR DEVELOPMENTS**
 
@@ -96,9 +96,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 122 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
+| `npm run test:engine` | 124 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 123-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run test:ui` | 127-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -459,6 +459,23 @@ so a fresh install never has to fall back. Word databases saved by an earlier ve
 automatically the next time the app opens — words and categories you wrote yourself are left alone,
 and your own cover words always win.
 
+### The word never repeats on a replay
+
+"Play again" (and replaying a finished table) deals a **fresh word**: the last five words a table has
+already seen are skipped, so the same word cannot come straight back. The list relaxes oldest-first,
+which means a small custom category still rotates instead of repeating. Online rooms keep that list
+inside the room's **private** secrets — it is never part of public room state, so nobody can read the
+round's word out of the shared document.
+
+### Waiting for the room server (players never paste anything)
+
+The room server is published **once** by the organiser in `runtime-config.json` next to `index.html`.
+Every other device reads it automatically — and if someone opens the app (or an invite link) before it
+has been published, the screen says *"Waiting for the room server"* with a **Check again** button.
+The app also re-reads the file by itself every 15 seconds, and whenever the tab is focused, so the
+waiting screen clears on its own within moments of the file going live. No player is ever asked for a
+URL or a key; only **I'm the organiser** opens the connect panel.
+
 ### Rotating the access phrase
 
 The passphrase is never stored in the source — only a salted SHA-256 digest is:
@@ -635,4 +652,4 @@ Run `supabase/schema.sql` once in the project and online rooms are live.
   self-hosted under the SIL Open Font License.
 - Supabase is optional and free-tier friendly; no paid services are required anywhere.
 
-**IMPOSTER — Crafted with passion by VR DEVELOPMENTS.**
+**VOTE OUT IMPOSTER — Crafted with passion by VR DEVELOPMENTS.**

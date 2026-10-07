@@ -38,7 +38,7 @@ import {
 import { assignOpeningRoles, assignRolesFor, isChaosMode, isChaosRound, scheduleNextChaosRound } from '../lib/gameEngine.js'
 import { buildClueOrder, computeResult, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, turnPlayer, voteProgress } from '../lib/onlineGame.js'
 import { normalizeRoom } from '../lib/onlineService.js'
-import { reloadRuntimeFile } from '../lib/runtimeConfig.js'
+import { reloadRuntimeFile, subscribeToBackend } from '../lib/runtimeConfig.js'
 import { readJSON, remove, writeJSON } from '../utils/storage.js'
 
 /**
@@ -49,6 +49,10 @@ import { readJSON, remove, writeJSON } from '../utils/storage.js'
 const SECRET_META_KEY = '__chaos_meta__'
 
 const HEARTBEAT_MS = 15000
+/** While nothing is configured, how often to re-read the published file. */
+const CONFIG_POLL_MS = 15000
+/** How many recent words a replay must avoid before it may repeat one. */
+const RECENT_WORDS = 5
 const RECONNECT_DELAYS = [1200, 2400, 4800, 8000, 12000, 20000]
 
 const emptySession = () => ({ code: null, playerId: null, name: '', isHost: false, roles: null, deck: null })
@@ -120,6 +124,42 @@ export function useOnlineRoom(bank) {
       alive = false
     }
   }, [])
+
+  /* Any configuration change — a save here, or the published file landing —
+     refreshes the status everything else reads. */
+  useEffect(() => subscribeToBackend(() => setBackend(backendStatus())), [])
+
+  /**
+   * Keep looking for the published file while this device is unconfigured.
+   *
+   * This is the fix for "it still asks for the key": the organiser publishes
+   * runtime-config.json once, and any phone that is already sitting on the
+   * waiting screen picks it up within seconds — without a reload and without
+   * anyone pasting anything. Polling stops the moment it is connected.
+   */
+  useEffect(() => {
+    if (backend.configured) return () => {}
+    let cancelled = false
+    const check = () => {
+      reloadRuntimeFile()
+        .then((ok) => {
+          if (!cancelled && ok) setBackend(backendStatus())
+        })
+        .catch(() => {})
+    }
+    const id = setInterval(check, CONFIG_POLL_MS)
+    const onWake = () => {
+      if (document.visibilityState === 'visible') check()
+    }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('online', onWake)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('online', onWake)
+    }
+  }, [backend.configured])
 
   /**
    * The single entry point UI panels use: save or clear values, then re-derive
@@ -475,6 +515,28 @@ export function useOnlineRoom(bank) {
   /* ------------------------------------------------------------------ */
   /* Host-only transitions                                               */
   /* ------------------------------------------------------------------ */
+
+  /**
+   * Words this room has recently played, oldest first.
+   *
+   * Kept in the private `__chaos_meta__` entry beside the round's word, so it
+   * survives the host refreshing mid-game — and it is never part of public
+   * room state, so it can never leak the current word to a player.
+   */
+  const recallRecentWords = useCallback(async () => {
+    const { code } = sessionRef.current
+    if (!code) return []
+    try {
+      const { secret } = await fetchSecret({ code, playerId: SECRET_META_KEY })
+      const recent = Array.isArray(secret?.recent) ? secret.recent.filter((w) => typeof w === 'string') : []
+      // A room played before this version still knows its last word.
+      if (secret?.word && !recent.includes(secret.word)) recent.push(secret.word)
+      return recent.slice(-RECENT_WORDS)
+    } catch {
+      return []
+    }
+  }, [])
+
   const startGame = useCallback(async () => {
     const { code, playerId } = sessionRef.current
     if (!code || !room) return { ok: false, error: 'Not connected.' }
@@ -485,10 +547,12 @@ export function useOnlineRoom(bank) {
 
     setBusy('starting')
     try {
+      const recent = await recallRecentWords()
       const picked = bank?.pick
         ? bank.pick({
             categoryIds: room.config.categoryIds,
             difficulty: room.config.difficulty,
+            exclude: recent,
           })
         : { word: 'Mystery', categoryName: 'Random', difficulty: 'medium', decoy: null }
 
@@ -500,7 +564,13 @@ export function useOnlineRoom(bank) {
       })
 
       const secrets = {}
-      secrets[SECRET_META_KEY] = { word: picked.word, decoy: picked.decoy || null, categoryName: picked.categoryName, difficulty: picked.difficulty }
+      secrets[SECRET_META_KEY] = {
+        word: picked.word,
+        decoy: picked.decoy || null,
+        categoryName: picked.categoryName,
+        difficulty: picked.difficulty,
+        recent: [...recent, picked.word].slice(-RECENT_WORDS),
+      }
       lobby.forEach((p) => {
         secrets[p.id] = {
           role: roleMap[p.id],
@@ -551,7 +621,7 @@ export function useOnlineRoom(bank) {
     } finally {
       setBusy(null)
     }
-  }, [room, bank, applyRoom])
+  }, [room, bank, applyRoom, recallRecentWords])
 
   /** Host: recompute the round outcome and publish it. */
   const publishResult = useCallback(async () => {
@@ -781,14 +851,25 @@ export function useOnlineRoom(bank) {
     if (!isHostDriver(room, playerId)) return { ok: false, error: 'Only the host can restart the room.' }
     setBusy('starting')
     try {
-      const picked = bank?.pick ? bank.pick({ categoryIds: room.config.categoryIds, difficulty: room.config.difficulty }) : { word: 'Mystery' }
+      /* Same table, brand-new word: the last few are excluded so "Play again"
+         can never quietly hand back the word everyone just played. */
+      const recent = await recallRecentWords()
+      const picked = bank?.pick
+        ? bank.pick({ categoryIds: room.config.categoryIds, difficulty: room.config.difficulty, exclude: recent })
+        : { word: 'Mystery' }
       const { roles } = assignRolesFor(room.config, room.players.length)
       const roleMap = {}
       room.players.forEach((p, index) => {
         roleMap[p.id] = roles[index]
       })
       const secrets = {}
-      secrets[SECRET_META_KEY] = { word: picked.word, decoy: picked.decoy || null, categoryName: picked.categoryName, difficulty: picked.difficulty }
+      secrets[SECRET_META_KEY] = {
+        word: picked.word,
+        decoy: picked.decoy || null,
+        categoryName: picked.categoryName,
+        difficulty: picked.difficulty,
+        recent: [...recent, picked.word].slice(-RECENT_WORDS),
+      }
       room.players.forEach((p) => {
         secrets[p.id] = {
           role: roleMap[p.id],
@@ -831,7 +912,7 @@ export function useOnlineRoom(bank) {
     } finally {
       setBusy(null)
     }
-  }, [room, bank, applyRoom])
+  }, [room, bank, applyRoom, recallRecentWords])
 
   const closeRoom = useCallback(async () => {
     const { code } = sessionRef.current

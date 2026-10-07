@@ -215,9 +215,19 @@ record(
   `found ${splashNameCount} occurrences: ${splashText.replace(/\s+/g, ' ').slice(0, 140)}`,
 )
 record(
+  'the splash shows the full title letter by letter',
+  splashEl()?.querySelector('h1')?.getAttribute('aria-label') === 'VOTE OUT IMPOSTER',
+  `h1 label: ${splashEl()?.querySelector('h1')?.getAttribute('aria-label')}`,
+)
+record(
   'the splash shows the studio line exactly once',
   (splashText.match(/VR DEVELOPMENTS/g) || []).length === 1,
   `found ${(splashText.match(/VR DEVELOPMENTS/g) || []).length}`,
+)
+record(
+  'the splash credits the studio as "by VR DEVELOPMENTS"',
+  /by\s+VR DEVELOPMENTS/i.test(splashText.replace(/\s+/g, ' ')),
+  splashText.replace(/\s+/g, ' ').slice(0, 120),
 )
 
 /* Splash → menu */
@@ -230,6 +240,10 @@ record(
   'the main menu shows the name exactly once',
   menuNameCount === 1,
   `found ${menuNameCount} occurrences: ${text().replace(/\s+/g, ' ').slice(0, 140)}`,
+)
+record(
+  'the main menu wordmark reads VOTE OUT IMPOSTER',
+  /VOTE OUT\s*IMPOSTER/i.test(window.document.body.textContent.replace(/\s+/g, ' ')),
 )
 record('pre-hydration boot plate is removed', !window.document.getElementById('boot'))
 record('studio credit is present', text().includes('Crafted with passion by VR DEVELOPMENTS'))
@@ -394,6 +408,7 @@ record(
 
 await navigate('lobby?room=A7KQMN')
 record('room deep link renders the seat prompt', text().includes('TAKE YOUR SEAT') || text().includes('A7KQMN'))
+
 
 /* Unknown route falls back to home instead of a blank screen */
 await navigate('does-not-exist')
@@ -713,12 +728,25 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   await wait(300)
 
   record('online mode offers a way in when no backend is set', /I'm the organiser/i.test(text()) && /Check again/i.test(text()))
+
   record('the setup screen explains what is needed', /Project URL/i.test(text()) && /anon key/i.test(text()))
   record(
     'the tile does not demand a rebuild or file edit',
     /no rebuild/i.test(text()) || /nothing to edit in code/i.test(text()),
   )
 
+  /* An invite link opened before the organiser has published the room server
+     must speak to the PLAYER, never ask them for a key. */
+  await navigate('lobby?room=A7KQMN')
+  await wait(320)
+  record(
+    'an invite link waits for the room server instead of asking for keys',
+    /Waiting for the room server/i.test(text()) && /Check again/i.test(text()) && !/described in the README/i.test(text()),
+    text().replace(/\s+/g, ' ').slice(0, 200),
+  )
+
+  await navigate('online')
+  await wait(300)
   const opened = await clickMatching(/I'm the organiser/i, 420)
   record('the connect panel opens from the online screen', opened && /Connect a backend/i.test(text()))
 

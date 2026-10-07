@@ -601,6 +601,46 @@ test('a decoy always fits the word, never a stranger from another world', () => 
   assert.ok(sawHint > 300, `expected the curated hints to drive most decoys, saw ${sawHint}`)
 })
 
+test('a replay never deals back a word the table has just played', () => {
+  /* The complaint: "if I replay or play again we are getting the same word."
+     Every deal now excludes the last few words, and the pool relaxes
+     oldest-first, so a small bank still rotates instead of repeating. */
+  const fresh = bank.defaultBank()
+  let state = engine.createGame(config(), names(6), bank.pickWord(fresh, { categoryIds: ['random'], difficulty: 'mixed' }))
+  const seen = [state.secret.word]
+
+  for (let i = 0; i < 25; i += 1) {
+    const exclude = seen.slice(-5)
+    const picked = bank.pickWord(fresh, { categoryIds: ['random'], difficulty: 'mixed', exclude })
+    state = engine.replayGame(state, picked)
+    assert.ok(!exclude.includes(state.secret.word), `replay ${i + 1} handed back a recent word`)
+    assert.equal(state.round, 1, 'a replay starts a fresh game')
+    seen.push(state.secret.word)
+  }
+  assert.ok(new Set(seen).size >= 20, `26 replays should keep the deck moving (saw ${new Set(seen).size} distinct)`)
+
+  // A two-word bank alternates rather than repeating.
+  const tiny = {
+    version: 2,
+    categories: [{ id: 'tiny', name: 'Tiny', builtin: false, words: [{ word: 'Alpha' }, { word: 'Beta' }] }],
+  }
+  assert.equal(bank.pickWord(tiny, { categoryIds: ['tiny'], difficulty: 'mixed', exclude: ['Alpha'] }).word, 'Beta')
+  assert.equal(bank.pickWord(tiny, { categoryIds: ['tiny'], difficulty: 'mixed', exclude: ['Beta'] }).word, 'Alpha')
+  // Excluding more words than the bank holds still deals (oldest dropped first).
+  assert.ok(bank.pickWord(tiny, { categoryIds: ['tiny'], difficulty: 'mixed', exclude: ['Alpha', 'Beta'] }).word)
+  // A one-word bank can only repeat — never throw.
+  const solo = { version: 2, categories: [{ id: 'solo', name: 'Solo', builtin: false, words: [{ word: 'Only' }] }] }
+  assert.equal(bank.pickWord(solo, { categoryIds: ['solo'], difficulty: 'mixed', exclude: ['Only'] }).word, 'Only')
+})
+
+test('the game is called VOTE OUT IMPOSTER', () => {
+  assert.equal(limits.BRAND.game, 'VOTE OUT IMPOSTER')
+  assert.equal(limits.BRAND.studio, 'VR DEVELOPMENTS')
+  // The title is set as lines; the headline word is the one that glows.
+  const words = limits.BRAND.game.split(' ')
+  assert.equal(words[words.length - 1], 'IMPOSTER')
+})
+
 test('every built-in word carries 3-5 curated hints of its own', () => {
   const fresh = bank.defaultBank()
   const problems = []

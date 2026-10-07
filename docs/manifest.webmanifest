@@ -1,6 +1,6 @@
 {
-  "name": "IMPOSTER — by VR DEVELOPMENTS",
-  "short_name": "IMPOSTER",
+  "name": "VOTE OUT IMPOSTER — by VR DEVELOPMENTS",
+  "short_name": "VOTE OUT",
   "description": "A cinematic social deduction party game for 2-20 players. Pass & play on one device, or spin up an online room.",
   "start_url": "./index.html#/home",
   "scope": "./",

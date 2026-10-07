@@ -284,7 +284,17 @@ export function pickWord(bank, { categoryIds = ['random'], difficulty = 'mixed',
     })
   })
 
+  /*
+   * Recently used words are skipped so a replay deals something new. If the
+   * list would empty the pool, exclusions are dropped OLDEST first — a
+   * three-word bank still rotates instead of handing back the last word while
+   * two untouched words sit right there. Only a single-word pool can repeat.
+   */
   let candidates = pool.filter((c) => !exclude.includes(c.word))
+  for (let drop = 0; drop < exclude.length - 1 && !candidates.length; drop += 1) {
+    const kept = exclude.slice(drop + 1)
+    candidates = pool.filter((c) => !kept.includes(c.word))
+  }
   if (!candidates.length) candidates = pool
   if (!candidates.length) {
     // Difficulty filter produced nothing (tiny custom bank) — retry without it.

@@ -5,10 +5,10 @@
 
 export const BRAND = {
   studio: 'VR DEVELOPMENTS',
-  game: 'IMPOSTER',
+  game: 'VOTE OUT IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.9',
+  version: '1.0.10',
 }
 
 export const LIMITS = {

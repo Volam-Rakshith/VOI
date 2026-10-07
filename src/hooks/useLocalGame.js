@@ -24,6 +24,8 @@ import { validateGameConfig, validateRoster } from '../utils/validate.js'
 import { DEFAULT_CONFIG } from '../data/defaults.js'
 
 const TICK_MS = 250
+/** How many recent words a replay must avoid before it may repeat one. */
+const RECENT_WORDS = 5
 
 /** Reducer wrapper adding lifecycle actions that only the hook uses. */
 export function localGameReducer(state, action) {
@@ -36,6 +38,20 @@ export function useLocalGame(bank) {
   const [state, dispatch] = useReducer(localGameReducer, null)
   const [error, setError] = useState(null)
   const lastTick = useRef(Date.now())
+  /** Words this table has already seen, newest last — replays avoid them. */
+  const recentWords = useRef([])
+
+  /** Deal a word, never one from the last few games on this device. */
+  const dealSecret = useCallback(
+    (config) => {
+      if (!bank?.pick) return null
+      const exclude = recentWords.current.slice(-RECENT_WORDS)
+      const picked = bank.pick({ ...config, exclude })
+      if (picked?.word) recentWords.current = [...recentWords.current, picked.word].slice(-RECENT_WORDS)
+      return picked
+    },
+    [bank],
+  )
 
   /* ------------------------------------------------------------------ */
   /* Countdown — wall-clock based so throttled tabs stay accurate        */
@@ -67,7 +83,7 @@ export function useLocalGame(bank) {
         return { ok: false, error: message, fieldErrors: roster.errors }
       }
       const { config: safeConfig } = validateGameConfig({ ...config, playerCount: roster.names.length })
-      const word = bank?.pick ? bank.pick(safeConfig) : null
+      const word = dealSecret(safeConfig) || (bank?.pick ? bank.pick(safeConfig) : null)
       if (!word) {
         const message = 'Your word database is empty. Add words in BLACK BOX or reset to defaults.'
         setError(message)
@@ -99,15 +115,16 @@ export function useLocalGame(bank) {
       submitGuess: (guess) => dispatch({ type: 'SUBMIT_GUESS', guess }),
       nextRound: () => dispatch({ type: 'NEXT_ROUND' }),
       replay: () => {
-        const picked = bank?.pick && state?.config ? bank.pick(state.config) : state?.secret
-        dispatch({ type: 'REPLAY', secret: picked })
+        // A fresh word, never one of the last few this table has played.
+        const picked = state?.config ? dealSecret(state.config) : null
+        dispatch({ type: 'REPLAY', secret: picked || state?.secret })
       },
       quit: () => {
         setError(null)
         dispatch({ type: '__RESET__' })
       },
     }),
-    [bank, state?.config, state?.secret],
+    [bank, dealSecret, state?.config, state?.secret],
   )
 
   /* ------------------------------------------------------------------ */

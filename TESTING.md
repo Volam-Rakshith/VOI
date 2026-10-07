@@ -28,8 +28,8 @@ Optional but recommended before committing:
 
 ```bash
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
-npm run test:engine   # 122 rule/utility tests → expect "122 passed, 0 failed"
-npm run test:ui       # 123 UI checks (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
+npm run test:engine   # 124 rule/utility tests → expect "124 passed, 0 failed"
+npm run test:ui       # 127 UI checks (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
 npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
 ```
 
