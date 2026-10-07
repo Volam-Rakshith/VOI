@@ -68,7 +68,7 @@ const STEPS = [
   {
     id: 'win',
     title: 'End the game',
-    body: 'The game runs until one side has nobody left. No round limit, no single-vote finish: remove every imposter and the crew wins, outlast the crew and the imposters do. Roles are revealed only here, once it is over.',
+    body: 'Remove every imposter and the crew wins. The imposters win the moment they match the crew — no vote can remove them after that — or by outlasting the crew, or by naming the word after being caught. Roles are revealed at the end.',
     glyph: 'spark',
     demo: 'win',
   },

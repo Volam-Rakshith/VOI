@@ -535,6 +535,8 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
   let guessScreenSeen = false
   let guessInputSeen = false
   let roleLeaked = false
+  let outcomeSeen = false
+  let revealLooks = 0
   let roundsPlayed = 1
   let ended = false
   let steps = 0
@@ -549,11 +551,14 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
       break
     }
 
-    /* Only the winner screens may talk about a role. */
+    /* No screen may ever announce a role WHILE the game is running — except the
+       deliberate post-vote outcome line, which names what the vote removed. */
     if (/WAS (NOT )?THE IMPOSTER/i.test(text())) roleLeaked = true
+    if (/You voted out a crewmate|You caught an imposter|The word went unguessed/i.test(text())) outcomeSeen = true
 
     const reveal = window.document.querySelector('[aria-label="Reveal your secret"]')
     if (reveal) {
+      revealLooks += 1
       click(reveal)
       await waitUntil(() => window.document.querySelector('[aria-label="Hide your secret"]'), 800)
       const hide = window.document.querySelector('[aria-label="Hide your secret"]')
@@ -610,7 +615,22 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
     guessScreenSeen ? guessInputSeen : true,
     guessScreenSeen ? 'the accused typed into #final-guess' : 'no imposter was caught before the game ended',
   )
-  record('no single vote ever reveals a player\'s role', !roleLeaked)
+  record('no screen ever accuses a living player mid-game', !roleLeaked)
+  record(
+    'cards are dealt once, not every round',
+    roundsPlayed < 2 || revealLooks <= 8,
+    `${revealLooks} card screens across ${roundsPlayed} round(s)`,
+  )
+  record(
+    'the result says what the vote removed, in plain words',
+    outcomeSeen,
+    outcomeSeen ? 'crewmate / imposter outcome line seen' : 'no result line matched',
+  )
+  record(
+    "the final board dates every elimination by round ('VOTED OUT R1')",
+    /VOTED OUT R\d/.test(text()),
+    text().replace(/\s+/g, ' ').slice(0, 160),
+  )
   record('the winner screen states the verdict in plain words', /WINS|WIN$|THE CREW|THE IMPOSTERS/i.test(text()))
   record('winner screen reveals the secret word', /the secret word was/i.test(text()))
   record(

@@ -778,10 +778,18 @@ export function useOnlineRoom(bank) {
     const chaosNow = isChaosRound({ config: room.config, nextChaosRound: room.game.nextChaosRound }, round)
     const restoresBase = !chaosNow && Boolean(room.game.noImposterRound)
 
+    /*
+     * Cards are only handed round again when the deal actually changed — a
+     * chaos re-roll, or the round that restores the base assignment after one.
+     * Every other round opens straight into the briefing: the table already
+     * knows its roles and the word.
+     */
+    const redeal = chaosNow || restoresBase
+
     const advance = {
       ...room.game,
       round,
-      phase: ONLINE_PHASES.REVEAL,
+      phase: redeal ? ONLINE_PHASES.REVEAL : ONLINE_PHASES.BRIEFING,
       revealedBy: [],
       clueOrder: buildClueOrder(aliveIds),
       clueIndex: 0,

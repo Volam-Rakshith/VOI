@@ -56,6 +56,7 @@ Both support the same two assignment styles:
   gets one guess at the crew's word first.
 - **Circular countdown ring** with escalating states — warning at 10 s, critical pulse at 5 s, time-up flare at 0.
 - **Dramatic reveals**: vote tallies animate bar by bar, the accused player's role lands with a burst, winners get confetti or a glitch-shake takeover.
+- **One win rule**: crew win by removing the last imposter; imposters win at parity, by outlasting the crew, or by naming the word after being caught.
 - **Online rooms** with 6-character codes from an unambiguous alphabet (`A7KQMN`-style — no O/0 or I/1 look-alikes), live lobby, ready states, host controls, host migration, reconnection, refresh-safe seats and a synced shared timer.
 - **BLACK BOX** — a hidden admin layer: 3 taps in the top-right corner of the home screen, a passphrase prompt, then a command-centre dashboard with system status, full word-database CRUD, category management, room management and session controls.
 - **Custom word engine** with 9 built-in categories (~150 words) across three difficulty tiers, plus import/export JSON, guarded reset-to-defaults and optional cloud sync.
@@ -96,9 +97,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 124 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
+| `npm run test:engine` | 131 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 127-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run test:ui` | 130-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -459,6 +460,27 @@ so a fresh install never has to fall back. Word databases saved by an earlier ve
 automatically the next time the app opens — words and categories you wrote yourself are left alone,
 and your own cover words always win.
 
+### How a game ends
+
+Two ways, and both are quick:
+
+- **The crew wins** by removing the last imposter (the caught imposter still gets their one guess first).
+- **The imposters win** the moment **parity** is reached — as many imposters alive as crew. From that point no
+  vote can remove them: they can tie every ballot, and with two players left the split can never be broken.
+  That is why a four-player game ends after two crewmates are voted out, exactly as it should, instead of
+  grinding through rounds nobody can win. They also win by outlasting the crew or by naming the word after
+  being caught.
+
+The vote result says what happened, in plain words: **"<name> is out of the game. You voted out a crewmate !
+{players} remain."** — or "you caught an imposter !". Nobody has to guess which side just lost a player.
+
+### Cards are dealt once, not every round
+
+Everyone looks at their secret card in round one. After that the table already knows its roles and the word,
+so ordinary rounds open straight into the briefing — the card pass only returns when something actually
+changes: a **chaos round** re-rolls every role, and the round that restores the base assignment afterwards
+deals a fresh hand too.
+
 ### The word never repeats on a replay
 
 "Play again" (and replaying a finished table) deals a **fresh word**: the last five words a table has
@@ -653,3 +675,4 @@ Run `supabase/schema.sql` once in the project and online rooms are live.
 - Supabase is optional and free-tier friendly; no paid services are required anywhere.
 
 **VOTE OUT IMPOSTER — Crafted with passion by VR DEVELOPMENTS.**
+"test" 

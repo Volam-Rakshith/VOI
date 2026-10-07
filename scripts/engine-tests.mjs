@@ -350,6 +350,18 @@ test('guesses are forgiving about case, spacing and punctuation', () => {
   assert.equal(engine.submitGuess(empty, '   ').lastResult.guess, 'wrong', 'an empty guess is simply wrong')
 })
 
+/** Advance any round into the voting phase, cards or no cards. */
+function toVoting(game) {
+  let next = game
+  let guard = 0
+  while ((next.phase === 'handoff' || next.phase === 'reveal') && guard < 60) {
+    next = engine.advanceReveal(engine.hideCard(engine.revealCard(next)))
+    guard += 1
+  }
+  if (next.phase === 'briefing' || next.phase === 'setup') next = engine.startRound(next)
+  return engine.beginVoting(next)
+}
+
 test('the crew wins only when the last imposter is gone', () => {
   let game = voteSetup({ count: 7, imposters: 3 })
   const imposters = game.players.filter((p) => p.role === 'imposter')
@@ -364,10 +376,12 @@ test('the crew wins only when the last imposter is gone', () => {
 
   game = engine.nextRound(game)
   assert.equal(game.round, 2)
-  assert.equal(game.phase, 'handoff')
+  /* Ordinary rounds skip the card pass now — nobody learns anything new. */
+  assert.equal(game.phase, 'briefing', 'round two opens straight into the briefing')
+  assert.ok(game.players.every((p) => p.revealed), 'the roster still counts as having seen its roles')
 
   // Second catch → wrong guess → still playing.
-  game = engine.beginVoting(engine.startRound(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(game)))))))))
+  game = toVoting(game)
   const target2 = game.players.find((p) => p.role === 'imposter' && p.alive)
   game.players.filter((p) => p.alive && p.id !== target2.id).forEach((voter) => {
     game = engine.castVote(game, voter.id, target2.id)
@@ -378,13 +392,7 @@ test('the crew wins only when the last imposter is gone', () => {
 
   // Third catch → the last imposter is gone → crew win.
   game = engine.nextRound(game)
-  let guard = 0
-  while (game.phase === 'reveal' && guard < 40) {
-    game = engine.hideCard(engine.revealCard(game))
-    game = engine.advanceReveal(game)
-    guard += 1
-  }
-  game = engine.beginVoting(engine.startRound(game))
+  game = toVoting(game)
   const last = game.players.find((p) => p.role === 'imposter' && p.alive)
   game.players.filter((p) => p.alive && p.id !== last.id).forEach((voter) => {
     game = engine.castVote(game, voter.id, last.id)
@@ -395,44 +403,102 @@ test('the crew wins only when the last imposter is gone', () => {
   assert.match(game.winner.reason, /all 3 imposters were rooted out/i)
 })
 
-test('the imposters win when the last crew member is removed', () => {
-  let game = voteSetup({ count: 3 })
-  const imposter = game.players.find((p) => p.role === 'imposter')
+test('the imposters win the moment they match the crew', () => {
+  /*
+   * The complaint: "total players 4, eliminate/voted out 2, it still
+   * continues????" — a 1-vs-1 table can never vote an imposter out, so the
+   * game now ends at parity instead of dragging on for rounds nobody can win.
+   */
+  let game = voteSetup({ count: 4 })
+  assert.equal(game.players.filter((p) => p.role === 'imposter').length, 1)
   const crew = game.players.filter((p) => p.role === 'crew')
-  // Crew vote out one of their own; the imposter joins in.
-  const victim = crew[0]
-  game.players.filter((p) => p.id !== victim.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, victim.id)
+
+  // Two crewmates voted out, one at a time. The first is survivable.
+  game.players.filter((p) => p.id !== crew[0].id && p.alive).forEach((voter) => {
+    game = engine.castVote(game, voter.id, crew[0].id)
   })
   game = engine.resolveRound(game)
-  assert.equal(game.winner, null, 'the game continues while any crew remains')
+  assert.equal(game.winner, null, '3 crew vs 1 imposter — the hunt goes on')
   assert.equal(game.phase, 'result')
 
   game = engine.nextRound(game)
-  let guard = 0
-  while (game.phase === 'reveal' && guard < 40) {
-    game = engine.hideCard(engine.revealCard(game))
-    game = engine.advanceReveal(game)
-    guard += 1
-  }
-  game = engine.beginVoting(engine.startRound(game))
-  const lastCrew = game.players.find((p) => p.role === 'crew' && p.alive)
+  game = toVoting(game)
+  const lastCrew = game.players.find((p) => p.alive && p.role === 'crew')
   game.players.filter((p) => p.alive && p.id !== lastCrew.id).forEach((voter) => {
     game = engine.castVote(game, voter.id, lastCrew.id)
   })
   game = engine.resolveRound(game)
-  assert.equal(game.winner.team, 'imposter')
-  assert.match(game.winner.reason, /last crew member is gone/i)
+  assert.equal(game.winner.team, 'imposter', 'one crew and one imposter left — the imposters take it')
+  assert.match(game.winner.reason, /two players are left|match the crew/i)
+  assert.equal(game.phase, 'result')
+})
+
+test('parity also ends a bigger table early, and only at parity', () => {
+  // 6 players, 2 imposters → 4 crew. Two crew out → 2 v 2 → imposters win.
+  let game = voteSetup({ count: 6, imposters: 2 })
+  assert.equal(game.players.filter((p) => p.role === 'crew').length, 4)
+  const crew = game.players.filter((p) => p.role === 'crew')
+  let round = game
+  for (let i = 0; i < 2; i += 1) {
+    const victim = crew[i]
+    round.players.filter((p) => p.alive && p.id !== victim.id).forEach((voter) => {
+      round = engine.castVote(round, voter.id, victim.id)
+    })
+    round = engine.resolveRound(round)
+    if (i === 0) {
+      assert.equal(round.winner, null, '3 crew vs 2 imposters is still playable')
+      round = toVoting(engine.nextRound(round))
+    }
+  }
+  assert.equal(round.winner.team, 'imposter')
+  assert.match(round.winner.reason, /match the crew/i)
+})
+
+test('a caught imposter still gets their guess before parity is judged', () => {
+  /* One crew + two imposters at the end: catching an imposter must NOT end the
+     game — they get the one guess first, exactly as before. */
+  let game = voteSetup({ count: 6, imposters: 2 })
+  const target = game.players.find((p) => p.role === 'imposter')
+  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
+    game = engine.castVote(game, voter.id, target.id)
+  })
+  game = engine.resolveRound(game)
+  assert.equal(game.winner, null, 'the caught imposter is owed a guess')
+  assert.equal(game.phase, 'guess')
+  const wrong = engine.submitGuess(game, 'nope')
+  assert.equal(wrong.lastResult.guess, 'wrong')
+  assert.equal(wrong.winner, null, '4 crew vs 1 imposter — play on')
+})
+
+test('the vote-outcome line names the player, the side and the survivors', () => {
+  const crewOut = engine.voteOutcomeLine({ name: 'Rakshith', wasImposter: false, alive: 3 })
+  assert.match(crewOut, /^Rakshith is out of the game\./)
+  assert.match(crewOut, /you voted out a crewmate/i)
+  assert.match(crewOut, /3 players remain/i)
+
+  const impOut = engine.voteOutcomeLine({ name: 'Meera', wasImposter: true, alive: 2 })
+  assert.match(impOut, /^Meera is out of the game\./)
+  assert.match(impOut, /you caught an imposter/i)
+  assert.match(impOut, /2 players remain/i)
+
+  const wrongGuess = engine.voteOutcomeLine({ name: 'Meera', wasImposter: true, guess: 'wrong', alive: 2 })
+  assert.match(wrongGuess, /was an imposter/i)
+  assert.match(wrongGuess, /word went unguessed/i)
+
+  // One player left reads "1 player remains", never "1 players".
+  assert.match(engine.voteOutcomeLine({ name: 'A', alive: 1 }), /1 player remains/)
+
+  // A chaos round that dealt nobody is still its own line.
+  assert.match(engine.voteOutcomeLine({ chaosNoImposter: true }), /every single player was crew/i)
 })
 
 test('the rules copy matches what the engine actually does', () => {
   const copy = engine.winConditionText('lastStanding')
-  assert.match(copy, /until one side has nobody left/i)
-  assert.match(copy, /naming the secret word after being caught/i)
+  assert.match(copy, /removing the last imposter/i)
+  assert.match(copy, /match the crew/i, 'parity is the rule, and it is explained')
+  assert.match(copy, /naming the secret word/i)
   assert.match(engine.winConditionText('classic', 'chaos'), /sometimes nobody, sometimes everyone/i)
-  // The old rules are gone for good.
   assert.ok(!/wins instantly/i.test(copy), 'no instant-win shortcut survives')
-  assert.ok(!/match the crew/i.test(copy), 'no outnumber rule survives')
 })
 
 test('there is no round limit any more', () => {
@@ -965,6 +1031,51 @@ test('eliminated players are excluded from voting and turns', () => {
 })
 
 /* ================================================================== */
+test('an online room resolves parity the same way', () => {
+  /* The room resolves its round with the shared determineWinner, so the online
+     table also ends the moment the imposters match the crew. */
+  const players = [
+    { id: 'p1', name: 'A', isHost: true, ready: true, online: true, joinedAt: 1, lastSeen: Date.now() },
+    { id: 'p2', name: 'B', ready: true, online: true, joinedAt: 2, lastSeen: Date.now() },
+  ]
+  const twoLeft = {
+    ...room(),
+    players,
+    config: { ...room().config, imposterCount: 1 },
+    game: { ...room().game, eliminated: ['p3', 'p4'], votes: { p1: 'p2', p2: 'p1' }, submitted: ['p1', 'p2'] },
+  }
+  const roles = { p1: 'crew', p2: 'imposter' }
+  const result = onlineGame.computeResult(twoLeft, roles)
+  assert.equal(result.tie, true, 'a two-player ballot always splits')
+  assert.equal(result.winner, 'imposter', 'and that split hands the game to the imposters')
+
+  // A caught imposter is still owed their guess before anything is settled.
+  const catching = {
+    ...room(),
+    players: [
+      ...players,
+      { id: 'p3', name: 'C', ready: true, online: true, joinedAt: 3, lastSeen: Date.now() },
+      { id: 'p4', name: 'D', ready: true, online: true, joinedAt: 4, lastSeen: Date.now() },
+    ],
+    game: { ...room().game, votes: { p1: 'p2', p3: 'p2', p4: 'p2' }, submitted: ['p1', 'p3', 'p4'] },
+  }
+  const caught = onlineGame.computeResult(catching, { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' })
+  assert.equal(caught.needsGuess, true, 'the accused imposter guesses first')
+  assert.equal(caught.winner, null)
+})
+
+test('the public result carries the outcome, and never a role for a living player', () => {
+  const crewOut = onlineGame.publicResult({ round: 2, eliminatedId: 'p3', eliminatedName: 'C', wasImposter: false, tie: false })
+  assert.equal(crewOut.role, 'crew', 'the table is told a crewmate was voted out')
+  assert.equal(crewOut.wasImposter, undefined, 'the raw flag still never travels')
+
+  const impOut = onlineGame.publicResult({ round: 2, eliminatedId: 'p2', eliminatedName: 'B', wasImposter: true, tie: false })
+  assert.equal(impOut.role, 'imposter')
+
+  // Nobody left the game — there is no role to report.
+  assert.equal(onlineGame.publicResult({ round: 3, eliminatedId: null, wasImposter: false, tie: true }).role, null)
+})
+
 group('ONLINE SERVICE SURFACE')
 
 test('an unconfigured build never pretends to be online', () => {
@@ -1096,6 +1207,30 @@ test('chaos re-rolls roles for a new round and never reuses the old ones', () =>
 
   assert.ok(counts.size >= 2, `the imposter count never varied across 60 re-rolls: ${[...counts].join(',')}`)
   assert.ok(changed >= 1, 'a re-roll can change which players are imposters')
+})
+
+test('an ordinary next round skips the card pass entirely', () => {
+  /* "do not show cards for every round since they already know" */
+  let game = engine.createGame(config(), names(6), SECRET)
+  game = { ...game, players: game.players.map((p) => ({ ...p, revealed: true })), round: 2, nextChaosRound: 9 }
+  const next = engine.nextRound(game)
+  assert.equal(next.chaosRound, false, 'not a chaos round')
+  assert.equal(next.phase, 'briefing', 'straight to the briefing — no cards')
+  assert.ok(next.players.every((p) => p.revealed), 'nobody is marked as still-to-look')
+  assert.equal(next.cardVisible, false)
+  assert.equal(next.revealIndex, 0)
+})
+
+test('a round that puts the base roles back still deals the cards', () => {
+  /* After a chaos round that dealt nobody, roles change again — so the table
+     must look at its new card. */
+  const chaos = { config: { winRule: 'classic', rounds: 2, mode: 'chaos', imposterCount: 2, turnSeconds: 30, categoryIds: ['random'], difficulty: 'mixed' }, players: [], round: 2, nextChaosRound: 9 }
+  let game = engine.createGame(chaos.config, names(6), SECRET)
+  game = { ...game, players: game.players.map((p) => ({ ...p, role: 'crew', revealed: true })), noImposterRound: true, round: 2, nextChaosRound: 9 }
+  const next = engine.nextRound(game)
+  assert.equal(next.players.filter((p) => p.role === 'imposter').length, 2, 'the base deal is back')
+  assert.equal(next.phase, 'handoff', 'everyone looks at their card again')
+  assert.ok(next.players.every((p) => !p.revealed), 'cards are un-seen for the new deal')
 })
 
 test('a chaos round resets the reveal so every player sees the new card', () => {
@@ -1366,47 +1501,81 @@ test('invalid values are never stored', () => {
   assert.equal(runtimeConfig.hasStoredBackend(), false, 'a rejected save must not persist')
 })
 
-test('a file published after launch is picked up by "Check again"', async () => {
+test('the published file reaches every status check (the "it still asks for keys" bug)', async () => {
   /*
-   * The exact complaint from players: "it keeps asking for the URL".
-   * A device that was open before runtime-config.json was published must be
-   * able to pick it up WITHOUT a reload — that is what the Check again button
-   * on the waiting screen calls. A typo in the file must be explained, not
-   * silently ignored.
+   * Two failures lived here.
+   *
+   * 1. The published runtime-config.json was only consulted by the ASYNC path
+   *    (ensureBackend). Every screen reads the SYNC path — describeBackend(),
+   *    isOnlineConfigured(), the Supabase client — which looked at device and
+   *    build values only. A device with a perfect published config reported
+   *    "not configured" forever, which is the "it always says to add supabase
+   *    url ... for the users who play" complaint.
+   * 2. A device that was already open when the file was published never looked
+   *    again until reloaded. The app now re-reads it (and the Check again
+   *    button forces it).
+   *
+   * Both scenarios are exercised in ONE body on purpose: the module keeps its
+   * resolution state, so two async tests would interleave and clobber it.
    */
   const realFetch = globalThis.fetch
   try {
     runtimeConfig.clearStoredBackend()
-    let published = '' // the shipped default: an all-empty file
+
+    // 1. The shipped default — an all-empty file — leaves the app unconfigured.
+    let published = ''
     globalThis.fetch = async () => ({ ok: true, text: async () => published })
-
     const before = await runtimeConfig.ensureBackend()
-    assert.equal(before.source, 'none', 'an empty published file leaves the app unconfigured')
+    assert.equal(before.source, 'none')
+    assert.equal(runtimeConfig.describeBackend().configured, false)
 
+    // 2. The organiser publishes real values. A live device picks them up with
+    //    no reload — exactly what "Check again" calls.
     published = JSON.stringify({ supabaseUrl: 'https://published.supabase.co', supabaseAnonKey: ANON_KEY })
-    const found = await runtimeConfig.reloadRuntimeFile()
-    assert.equal(found, true, 'the re-read reports success')
-    const after = await runtimeConfig.ensureBackend()
-    assert.equal(after.source, 'file')
-    assert.equal(after.url, 'https://published.supabase.co')
-    assert.equal(after.anonKey, ANON_KEY)
+    assert.equal(await runtimeConfig.reloadRuntimeFile(), true, 'the re-read reports success')
 
-    // Fetched with a cache-buster, or GitHub Pages would serve the old copy.
+    // ... and the SYNCHRONOUS view every screen renders now sees them too.
+    assert.equal(runtimeConfig.getActiveBackend().source, 'file')
+    assert.equal(runtimeConfig.getActiveBackend().url, 'https://published.supabase.co')
+    assert.equal(runtimeConfig.describeBackend().configured, true, 'the status badge says CONNECTED')
+    assert.equal(runtimeConfig.describeBackend().sourceLabel, 'runtime-config.json')
+    assert.equal(runtimeConfig.hasStoredBackend(), false, 'nothing was saved on this device')
+    assert.equal(supabaseLib.isOnlineConfigured(), true, 'the client layer agrees')
+    assert.equal(supabaseLib.supabaseConfig.url, 'https://published.supabase.co')
+    assert.equal((await runtimeConfig.ensureBackend()).source, 'file')
+
+    // 3. The file is re-fetched, never served from cache — GitHub Pages would
+    //    otherwise keep handing back the empty copy it first saw.
     let cacheBusted = false
     globalThis.fetch = async (url, options) => {
       cacheBusted = options?.cache === 'no-store' && /[?&]t=\d+/.test(String(url))
       return { ok: true, text: async () => published }
     }
     await runtimeConfig.reloadRuntimeFile()
-    assert.equal(cacheBusted, true, 'the published file is re-fetched, never re-used from cache')
+    assert.equal(cacheBusted, true)
 
-    // A typo in the file is surfaced instead of being ignored in silence.
+    // 4. A dashboard URL and a publishable key are exactly what people paste.
+    published = JSON.stringify({
+      supabaseUrl: 'https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo',
+      supabaseAnonKey: 'sb_publishable_s2Aq-KaMWo9EaASjbvPZOg_rVy6McSM',
+    })
+    await runtimeConfig.reloadRuntimeFile()
+    assert.equal(runtimeConfig.getActiveBackend().url, 'https://uepgrjiktejmvyupvzlo.supabase.co', 'the dashboard link is normalised')
+    assert.equal(runtimeConfig.describeBackend().configured, true)
+
+    // 5. A typo is explained rather than swallowed.
     published = JSON.stringify({ supabaseUrl: 'https://published.supabase.co', anonKey: 'nope' })
     await runtimeConfig.reloadRuntimeFile()
     const issue = runtimeConfig.runtimeFileIssue()
     assert.equal(issue.found, true)
     assert.match(issue.error || '', /ignored/i)
-    assert.equal((await runtimeConfig.ensureBackend()).source, 'none')
+    assert.equal(runtimeConfig.getActiveBackend().source, 'none')
+
+    // 6. A value saved on the device still outranks the file.
+    published = JSON.stringify({ supabaseUrl: 'https://published.supabase.co', supabaseAnonKey: ANON_KEY })
+    await runtimeConfig.reloadRuntimeFile()
+    runtimeConfig.saveStoredBackend({ url: 'https://devicesave.supabase.co', anonKey: ANON_KEY })
+    assert.equal(runtimeConfig.getActiveBackend().source, 'device')
   } finally {
     globalThis.fetch = realFetch
     runtimeConfig.clearStoredBackend()

@@ -40,6 +40,31 @@ export function isVoteStalemate(state, tally) {
   return aliveImposters(state).length >= 1 && aliveCrew(state).length >= 1
 }
 
+/**
+ * The line the table reads after a vote.
+ *
+ * The user asked for the outcome to be spelled out, so it is: the player who
+ * left is named, whether a crewmate or an imposter was removed, and how many
+ * players are still in the game. (This deliberately replaces the older
+ * "nobody is told what they were" wording.)
+ */
+export function voteOutcomeLine({ name, wasImposter = false, alive = null, guess = null, chaosNoImposter = false } = {}) {
+  const who = name || 'That player'
+  const left =
+    Number.isFinite(alive) && alive > 0
+      ? alive === 1
+        ? '1 player remains.'
+        : `${alive} players remain.`
+      : 'The hunt continues.'
+  if (chaosNoImposter) return chaosNoImposterLine()
+  if (wasImposter) {
+    return guess === 'wrong'
+      ? `${who} was an imposter ! The word went unguessed — ${left}`
+      : `${who} is out of the game. You caught an imposter ! ${left}`
+  }
+  return `${who} is out of the game. You voted out a crewmate ! ${left}`
+}
+
 /** Copy for the round a two-player tie can no longer be broken in. */
 export function voteStalemateReason() {
   return 'The last two players split the vote and neither could break it — with nobody able to catch them, the imposters take the game.'
@@ -73,9 +98,9 @@ export const isImposter = (player) => player?.role === ROLES.IMPOSTER
  */
 export function winConditionText(winRule, mode) {
   if (mode === 'chaos') {
-    return 'Chaos rounds re-roll who the imposters are every few rounds — sometimes nobody, sometimes everyone. Crew wins by removing the last imposter; imposters win by outlasting the crew or naming the word after being caught.'
+    return 'Chaos rounds re-roll who the imposters are every few rounds — sometimes nobody, sometimes everyone. Crew wins by removing the last imposter. Imposters win as soon as they match the crew (no vote can remove them then), by outlasting the crew, or by naming the word after being caught.'
   }
-  return 'The game runs until one side has nobody left. Crew wins by removing the last imposter; imposters win by outlasting the crew — or by naming the secret word after being caught.'
+  return 'Crew wins by removing the last imposter. Imposters win the moment they match the crew — once as many imposters are alive as crew, no vote can remove them — or by outlasting the crew, or by naming the secret word after being caught.'
 }
 
 /* -------------------------------------------------------------------------- */
@@ -649,6 +674,27 @@ export function determineWinner(state) {
     }
   }
 
+  /*
+   * PARITY — the imposters have won without another round being played.
+   *
+   * Once as many imposters are alive as there are crew, no vote can ever remove
+   * them: they can tie every ballot, and any crewmate who pushes is the one
+   * voted out. With two players left (one crew, one imposter) the split can
+   * never be broken at all. The table used to be made to play out those rounds
+   * anyway, which is the "it still continues??" complaint — the game now ends
+   * the moment parity is reached.
+   */
+  if (remainingImposters > 0 && remainingImposters >= remainingCrew) {
+    return {
+      team: 'imposter',
+      reason:
+        remainingCrew === 1
+          ? 'Only two players are left — one crewmate and one imposter — and no vote can remove an imposter. The imposters take the game.'
+          : `The imposters now match the crew (${remainingImposters} vs ${remainingCrew}) — every vote can be tied and no imposter can be removed. The imposters take the game.`,
+      chaos: false,
+    }
+  }
+
   return null
 }
 
@@ -749,10 +795,19 @@ export function nextRound(state) {
   const needsBase = !chaosNow && isImposterFreeRound(state)
   const assigned = chaosNow ? rerollChaosRoles(state) : needsBase ? restoreBaseRoles(state) : state
 
+  /*
+   * Cards are only dealt again when something actually changed: a chaos round
+   * re-rolls every role, and a round that restored the base assignment changes
+   * roles too. Otherwise nobody learns anything new from a second look, so the
+   * round opens straight into the briefing (the table asked for exactly this).
+   */
+  const redeal = chaosNow || needsBase
+
   return {
     ...assigned,
     round,
-    phase: GAME_PHASES.HANDOFF,
+    phase: redeal ? GAME_PHASES.HANDOFF : GAME_PHASES.BRIEFING,
+    players: redeal ? assigned.players : assigned.players.map((p) => (p.revealed ? p : { ...p, revealed: true })),
     revealIndex: 0,
     cardVisible: false,
     clueIndex: 0,

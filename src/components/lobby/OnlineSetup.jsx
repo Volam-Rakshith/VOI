@@ -300,12 +300,12 @@ export function OnlineSetup({
                 { value: 'chaos', label: 'Chaos', hint: 'anyone could be one' },
               ]}
             />
-            {/* One win rule: the game ends when a side runs out of players. */}
+            {/* One win rule: a side runs out of players, or the imposters reach parity. */}
             <div className="rounded-xl border border-violet-400/25 bg-black/30 px-3 py-2.5">
               <span className="label text-[9px]">how the game ends</span>
               <p className="mt-1 text-[11.5px] leading-relaxed text-violet-200/60">
-                Until one side has nobody left. A caught imposter gets one guess at the word first — name it and the imposters take the
-                game. A split vote removes nobody.
+                When one side has nobody left — or earlier, the moment the imposters match the crew, because no vote can remove
+                them then. A caught imposter gets one guess at the word first. A split vote removes nobody.
               </p>
             </div>
             {chaos && (

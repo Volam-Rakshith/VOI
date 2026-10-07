@@ -134,10 +134,10 @@ export function LobbyView({ online, onExit }) {
                     label: `${category.name} · ${category.count} words`,
                   }))}
                 />
-                {/* One win rule: the game ends when a side runs out of players. */}
+                {/* One win rule: a side runs out of players, or the imposters reach parity. */}
                 <p className="text-[11.5px] leading-relaxed text-violet-200/50">
-                  The game ends when one side has nobody left — a caught imposter gets one guess at the word first, and a split
-                  vote removes nobody.
+                  The game ends when one side has nobody left — or sooner, the moment the imposters match the crew, because no
+                  vote can remove them then. A caught imposter gets one guess at the word first, and a split vote removes nobody.
                 </p>
                 <SegmentedControl
                   size="sm"
@@ -167,10 +167,10 @@ export function LobbyView({ online, onExit }) {
                     { value: 'chaos', label: 'Chaos' },
                   ]}
                 />
-                {/* One win rule: the game ends when a side runs out of players. */}
+                {/* One win rule: a side runs out of players, or the imposters reach parity. */}
                 <p className="text-[11.5px] leading-relaxed text-violet-200/50">
-                  The game ends when one side has nobody left. A caught imposter gets one guess at the word first — name it and
-                  the imposters take the game. A split vote removes nobody.
+                  The game ends when one side has nobody left, or the moment the imposters match the crew. A caught imposter gets
+                  one guess at the word first — name it and the imposters take the game. A split vote removes nobody.
                 </p>
               </motion.div>
             )}

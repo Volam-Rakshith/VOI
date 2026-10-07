@@ -80,6 +80,39 @@ export default {
           '62%': { opacity: '.6' },
           '64%': { opacity: '1' },
         },
+        /* ---- cinematic open: the warp floor, the burst, the impacts ---- */
+        warp: {
+          '0%': { transform: 'perspective(420px) rotateX(72deg) translateZ(0) translateY(0)' },
+          '100%': { transform: 'perspective(420px) rotateX(72deg) translateZ(0) translateY(46px)' },
+        },
+        'spin-slow': {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
+        },
+        ring: {
+          '0%': { transform: 'scale(.25)', opacity: '.85' },
+          '70%': { opacity: '.22' },
+          '100%': { transform: 'scale(2.6)', opacity: '0' },
+        },
+        flash: {
+          '0%': { opacity: '0' },
+          '18%': { opacity: '.9' },
+          '100%': { opacity: '0' },
+        },
+        spark: {
+          '0%': { transform: 'translate3d(0,0,0) scale(1)', opacity: '1' },
+          '100%': { transform: 'translate3d(var(--sx),var(--sy),0) scale(.2)', opacity: '0' },
+        },
+        chroma: {
+          '0%,100%': { textShadow: '0 0 12px rgba(34,211,238,.75), 0 0 34px rgba(168,85,247,.5)' },
+          '35%': { textShadow: '-3px 0 0 rgba(255,43,209,.85), 3px 0 0 rgba(34,211,238,.85)' },
+          '45%': { textShadow: '2px 0 0 rgba(34,211,238,.9), -2px 0 0 rgba(255,43,209,.7)' },
+          '55%': { textShadow: '0 0 12px rgba(34,211,238,.75), 0 0 34px rgba(168,85,247,.5)' },
+        },
+        'beam-run': {
+          '0%': { backgroundPosition: '-120% 0' },
+          '100%': { backgroundPosition: '220% 0' },
+        },
       },
       animation: {
         floaty: 'floaty 6s ease-in-out infinite',
@@ -89,6 +122,13 @@ export default {
         glitch: 'glitch .38s steps(2) 2',
         shimmer: 'shimmer 2.6s linear infinite',
         flicker: 'flicker 4.5s ease-in-out infinite',
+        warp: 'warp 1.5s linear infinite',
+        'spin-slow': 'spin-slow 22s linear infinite',
+        ring: 'ring 1.15s cubic-bezier(.16,1,.3,1) forwards',
+        flash: 'flash .5s ease-out forwards',
+        spark: 'spark .85s cubic-bezier(.16,1,.3,1) forwards',
+        chroma: 'chroma .9s steps(3) 1',
+        'beam-run': 'beam-run 1.5s linear infinite',
       },
     },
   },

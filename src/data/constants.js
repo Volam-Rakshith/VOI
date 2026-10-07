@@ -8,7 +8,7 @@ export const BRAND = {
   game: 'VOTE OUT IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.10',
+  version: '1.0.11',
 }
 
 export const LIMITS = {
@@ -46,7 +46,7 @@ export const WIN_RULES = [
     label: 'Last team standing',
     short: 'Nobody outvotes an empty bench',
     description:
-      'Vote out an imposter and they get one guess at the crew\'s word — name it and the imposters take everything. Otherwise play continues until one side has nobody left. A split vote removes nobody.',
+      'Vote out an imposter and they get one guess at the crew\'s word — name it and the imposters take everything. Otherwise the game runs until one side has nobody left, or until the imposters match the crew — from that point no vote can remove them. A split vote removes nobody.',
   },
 ]
 

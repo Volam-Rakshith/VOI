@@ -140,7 +140,9 @@ export function WinnerScreen({
                       <span className="truncate font-display text-[12px] tracking-[.08em] text-violet-50">{player.name}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
-                      {!player.alive && <Badge tone="muted">out · r{player.eliminatedRound || '—'}</Badge>}
+                      {!player.alive && (
+                        <Badge tone="muted">VOTED OUT R{player.eliminatedRound || '—'}</Badge>
+                      )}
                       <Badge tone={imp ? 'magenta' : 'cyan'}>{imp ? 'imposter' : 'crew'}</Badge>
                     </span>
                   </motion.li>

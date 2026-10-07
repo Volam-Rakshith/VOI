@@ -38,7 +38,7 @@ export function PlayerPill({ player, active = false, eliminated = false, showRol
         {meta && <span className="mt-0.5 block truncate text-[11px] text-violet-200/55">{meta}</span>}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        {eliminated && <Badge tone="muted">out</Badge>}
+        {eliminated && <Badge tone="muted">voted out</Badge>}
         {showRole && !eliminated && isImposter && <Badge tone="magenta">imposter</Badge>}
         {showRole && !eliminated && !isImposter && <Badge tone="cyan">crew</Badge>}
       </span>

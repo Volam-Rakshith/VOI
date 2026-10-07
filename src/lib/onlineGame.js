@@ -128,7 +128,16 @@ export function computeResult(room, roles = {}) {
 export function publicResult(result) {
   if (!result) return result
   const { wasImposter, ...rest } = result
-  return rest
+  return {
+    ...rest,
+    /*
+     * Whether the vote removed a crewmate or an imposter is now shown to the
+     * whole table ("you voted out a crewmate !"), so it travels with the public
+     * result. Only the outcome of a vote that actually removed someone — a tie
+     * or a chaos round removes nobody and carries no role.
+     */
+    role: result.eliminatedId ? (wasImposter ? 'imposter' : 'crew') : null,
+  }
 }
 
 /**

@@ -232,11 +232,23 @@ export function subscribeToBackend(listener) {
   return () => listeners.delete(listener)
 }
 
-/** Synchronous view: device settings, else build-time values. */
+/**
+ * Synchronous view of the active backend, in priority order:
+ *   1. values saved on this device
+ *   2. runtime-config.json, once it has been read (see loadRuntimeFile)
+ *   3. build-time values
+ *
+ * The published file MUST be consulted here — every status check in the app
+ * (describeBackend().configured, isOnlineConfigured(), the Supabase client) is
+ * synchronous and funnels through this function. Leaving it out meant a device
+ * with a perfectly good published config still reported "not configured", which
+ * is exactly what players kept seeing.
+ */
 export function getActiveBackend() {
   if (cached) return cached
   const stored = readStoredBackend()
   if (stored) cached = { ...stored, source: 'device' }
+  else if (fileConfig) cached = { ...fileConfig, source: 'file' }
   else if (buildBackend.url && buildBackend.anonKey) cached = { ...buildBackend, source: 'build' }
   else cached = { url: '', anonKey: '', source: 'none' }
   return cached

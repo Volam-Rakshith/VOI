@@ -21,6 +21,7 @@ import { ConnectionBanner } from './ConnectionBanner.jsx'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
 import { roomAlive } from '../../lib/onlineGame.js'
+import { voteOutcomeLine } from '../../lib/gameEngine.js'
 
 /* ------------------------------------------------------------------ */
 
@@ -175,12 +176,17 @@ export function OnlineGamePhases({ online, onExit }) {
 
   if (gameOver && view?.screen === 'result') {
     const roles = room.game.revealedRoles || {}
+    /* Which round each player left in, read from the room's public history. */
+    const leftIn = {}
+    ;(room.game.history || []).forEach((entry) => {
+      if (entry?.eliminatedId) leftIn[entry.eliminatedId] = entry.round
+    })
     const players = room.players.map((p) => ({
       id: p.id,
       name: p.name,
       role: roles[p.id] || (p.id === session.playerId ? view.myRole : null) || ROLES.CREW,
       alive: !(room.game.eliminated || []).includes(p.id),
-      eliminatedRound: room.game.lastResult?.round || null,
+      eliminatedRound: leftIn[p.id] || null,
     }))
     const mySecret = online.secret
     return (
@@ -505,6 +511,14 @@ export function OnlineGamePhases({ online, onExit }) {
       wasImposter: (room.game.revealedRoles || {})[id] === ROLES.IMPOSTER,
     }))
     const max = Math.max(1, ...Object.values(result?.counts || { 0: 1 }))
+    /* The table is told what the vote removed, and how many players remain. */
+    const removedImposter = result?.role === 'imposter'
+    const outcomeLine = voteOutcomeLine({
+      name: result?.eliminatedName,
+      wasImposter: removedImposter,
+      guess: result?.guess,
+      alive: room.players.length - (room.game.eliminated || []).length,
+    })
 
     return (
       <>
@@ -522,13 +536,14 @@ export function OnlineGamePhases({ online, onExit }) {
             >
               {result?.eliminatedName || 'Nobody'}
             </motion.h2>
-            {/* Nobody learns a role from a single vote — not even the table. */}
             <p className="mt-2 font-display text-[12.5px] tracking-[.18em] text-magenta-glow">
               {result?.noImposter
                 ? 'EVERY PLAYER WAS CREW THIS ROUND'
                 : result?.tie
                   ? 'THE VOTE WAS SPLIT — NOBODY LEAVES'
-                  : 'OUT OF THE GAME — THE HUNT CONTINUES'}
+                  : removedImposter
+                    ? 'CAUGHT — THAT WAS AN IMPOSTER !'
+                    : 'VOTED OUT — A CREWMATE !'}
             </p>
           </div>
 
@@ -543,14 +558,12 @@ export function OnlineGamePhases({ online, onExit }) {
             <StatBlock label="imposters left" value="?" tone="magenta" />
           </div>
 
-          <InlineNotice tone={result?.noImposter || result?.tie ? 'warn' : 'error'}>
+          <InlineNotice tone={result?.noImposter || result?.tie ? 'warn' : removedImposter ? 'success' : 'error'}>
             {result?.noImposter
               ? chaosNoImposterLine()
               : result?.tie
                 ? 'A split vote means nobody leaves the ship. Talk it through and go again.'
-                : result?.guess === 'wrong'
-                  ? 'The word went unguessed. That player is out — the game continues.'
-                  : 'One player is out of the game. Nobody is told what they were.'}
+                : outcomeLine}
           </InlineNotice>
 
           <div className="mt-auto space-y-2">

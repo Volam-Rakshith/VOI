@@ -18,7 +18,7 @@ import { WinnerScreen } from './WinnerScreen.jsx'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
 import { haptic } from '../../lib/haptics.js'
-import { chaosNoImposterLine } from '../../lib/gameEngine.js'
+import { chaosNoImposterLine, voteOutcomeLine } from '../../lib/gameEngine.js'
 
 /* ------------------------------------------------------------------ */
 /* Shared frame                                                        */
@@ -518,12 +518,19 @@ export function ResultPhase({ state, view, actions, onExit, muted }) {
   }
 
   /*
-   * Roles are never announced here. Until the game is over, nobody learns
-   * whether the player who left was crew or an imposter — the vote total is all
-   * the table gets.
+   * The table is told what the vote removed — "you voted out a crewmate !" or
+   * "you caught an imposter !" — and how many players are still in it. (This
+   * replaced the older "nobody is told what they were" line on request.)
    */
   const noImposter = Boolean(summary?.noImposter)
   const guessWrong = summary?.guess === 'wrong'
+  const removedImposter = Boolean(summary?.wasImposter)
+  const outcomeLine = voteOutcomeLine({
+    name: summary?.eliminatedName,
+    wasImposter: removedImposter,
+    guess: summary?.guess,
+    alive: view?.alive?.length ?? state.players.filter((p) => p.alive).length,
+  })
 
   return (
     <PhaseFrame state={state} view={view} phaseLabel="result" onQuit={actions.quit}>
@@ -540,7 +547,9 @@ export function ResultPhase({ state, view, actions, onExit, muted }) {
               ? 'EVERY PLAYER WAS CREW THIS ROUND'
               : summary?.tie
                 ? 'THE VOTE WAS SPLIT — NOBODY LEAVES'
-                : 'OUT OF THE GAME — THE HUNT CONTINUES'}
+                : removedImposter
+                  ? 'CAUGHT — THAT WAS AN IMPOSTER !'
+                  : 'VOTED OUT — A CREWMATE !'}
           </p>
         </div>
 
@@ -551,14 +560,12 @@ export function ResultPhase({ state, view, actions, onExit, muted }) {
           </Panel>
         )}
 
-        <InlineNotice tone={noImposter ? 'warn' : summary?.tie ? 'warn' : 'error'}>
+        <InlineNotice tone={noImposter ? 'warn' : summary?.tie ? 'warn' : removedImposter ? 'success' : 'error'}>
           {noImposter
             ? chaosNoImposterLine()
             : summary?.tie
               ? 'A split vote means nobody leaves — the game moves on to the next round.'
-              : guessWrong
-                ? 'The word went unguessed. That player is out — the game continues.'
-                : 'One player is out of the game. Nobody is told what they were.'}
+              : outcomeLine}
         </InlineNotice>
       </div>
 
