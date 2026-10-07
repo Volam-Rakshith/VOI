@@ -4,7 +4,7 @@
 --
 --  Run this in:  Supabase Dashboard → SQL Editor → New query → Run
 --
---  SCHEMA VERSION 1.0.5
+--  SCHEMA VERSION 1.0.7
 --  The version is also written into the database, so supabase/verify.sql can
 --  tell you which file was applied. Safe to run MORE THAN ONCE, and safe on a
 --  partially set-up project: nothing is dropped and no room data is touched.
@@ -47,7 +47,7 @@ create table if not exists public.imposter_rooms (
 );
 
 -- Which file was applied last. supabase/verify.sql reads this back.
-comment on table public.imposter_rooms is 'IMPOSTER schema v1.0.5 — safe to re-run';
+comment on table public.imposter_rooms is 'IMPOSTER schema v1.0.7 — safe to re-run';
 
 create index if not exists imposter_rooms_updated_idx on public.imposter_rooms (updated_at desc);
 create index if not exists imposter_rooms_status_idx  on public.imposter_rooms (status);
@@ -58,7 +58,7 @@ create table if not exists public.imposter_words (
   updated_at timestamptz not null default now()
 );
 
-comment on table public.imposter_words is 'IMPOSTER schema v1.0.5 — shared word database';
+comment on table public.imposter_words is 'IMPOSTER schema v1.0.7 — shared word database';
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security
@@ -77,6 +77,12 @@ create policy "rooms creatable" on public.imposter_rooms for insert with check (
 
 drop policy if exists "rooms updatable" on public.imposter_rooms;
 create policy "rooms updatable" on public.imposter_rooms for update using (true) with check (true);
+
+-- Deletable too: closing a room removes the row. The client falls back to a
+-- plain delete when the RPC is unavailable (an older database, for instance),
+-- so without this a close on that setup would silently fail.
+drop policy if exists "rooms deletable" on public.imposter_rooms;
+create policy "rooms deletable" on public.imposter_rooms for delete using (true);
 
 -- Shared words: publicly readable, writable ONLY by a signed-in user.
 -- (Client-side admin passwords are convenience only — this is the real gate.)
@@ -231,10 +237,10 @@ begin
 
   if v_leaving is not null and coalesce((v_leaving->>'isHost')::boolean, false) then
     if jsonb_array_length(v_players) = 0 then
-      update public.imposter_rooms
-         set status = 'terminated', player_count = 0, updated_at = now()
-       where code = upper(p_code);
-      return jsonb_build_object('room', (select room from public.imposter_rooms where code = upper(p_code)));
+      /* Last player out of a room the host already emptied: delete the row, so
+         an abandoned room never lingers either. */
+      delete from public.imposter_rooms where code = upper(p_code);
+      return jsonb_build_object('room', null, 'closed', true);
     end if;
     select elem into v_next from jsonb_array_elements(v_players) elem
       order by (elem->>'joinedAt')::bigint asc limit 1;
@@ -364,21 +370,39 @@ begin
 end;
 $$;
 
+-- Closing a room DELETES it.
+--
+-- The host closes the room once everybody has finished playing, and a closed
+-- room has no reason to exist any more: the code is never reused, the secrets
+-- are dead, and leaving rows behind is what fills a free project up. Removing
+-- the row here is what keeps the database flat at 50 users or 5,000 — every
+-- finished game gives its storage back.
+--
+-- Clients that are still watching the row get a DELETE event on their realtime
+-- subscription and are told the host closed the room.
 create or replace function public.imposter_terminate_room(p_code text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_deleted integer;
 begin
-  update public.imposter_rooms
-     set status = 'terminated', updated_at = now()
-   where code = upper(p_code);
-  return jsonb_build_object('ok', true);
+  with gone as (
+    delete from public.imposter_rooms
+     where code = upper(p_code)
+    returning 1
+  )
+  select count(*) into v_deleted from gone;
+  return jsonb_build_object('ok', true, 'deleted', coalesce(v_deleted, 0));
 end;
 $$;
 
 -- Optional housekeeping: schedule with pg_cron if you have it.
+-- Housekeeping: DELETE rooms nobody has touched for three hours, plus any
+-- leftover 'terminated' rows from older versions of this schema. Deleted, not
+-- flagged — see the note on imposter_terminate_room.
 create or replace function public.imposter_sweep_expired()
 returns integer
 language plpgsql
@@ -389,10 +413,9 @@ declare
   v_count integer;
 begin
   with gone as (
-    update public.imposter_rooms
-       set status = 'terminated', updated_at = now()
-     where status <> 'terminated'
-       and updated_at < now() - interval '3 hours'
+    delete from public.imposter_rooms
+     where status = 'terminated'
+        or updated_at < now() - interval '3 hours'
     returning 1
   )
   select count(*) into v_count from gone;
@@ -414,7 +437,7 @@ grant execute on function public.imposter_terminate_room(text)                  
 -- `public` by default; stating them here means a project with customised default
 -- privileges still works, and row access stays governed by the policies above.
 grant usage on schema public to anon, authenticated;
-grant select, insert, update on public.imposter_rooms to anon, authenticated;
+grant select, insert, update, delete on public.imposter_rooms to anon, authenticated;
 grant select on public.imposter_words to anon, authenticated;
 grant insert, update, delete on public.imposter_words to authenticated;
 

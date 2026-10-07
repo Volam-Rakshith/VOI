@@ -96,9 +96,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 115 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
+| `npm run test:engine` | 118 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 106-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run test:ui` | 120-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -214,6 +214,51 @@ the scheduled chaos rounds only.
 **Haptics never betray a role.** The vibration cue for revealing a card is byte-for-byte identical
 whether you are crew or imposter, and cues are short — a phone on a table should feel the game, not
 broadcast it. Vibration is a Settings toggle and is skipped silently on devices that don't support it.
+
+---
+
+## Online rooms: what the host controls
+
+A room is configured **when it is created**, and every player sees the same setup in the lobby:
+
+| Control | Range | Notes |
+| --- | --- | --- |
+| Imposters | 1–4 | Capped to a strict minority of the players who actually joined; disabled in chaos mode |
+| Turn length | 15 / 30 / 45 / 60 / 90 s | Steps through exactly those values |
+| Category + difficulty | any | From the host's word database |
+| Game mode | normal / chaos | Chaos re-rolls the deal on its scheduled rounds only |
+
+The host can change any of it in the lobby before dealing, and the roster re-checks the imposter count every
+time somebody joins or leaves.
+
+### The room lifecycle, and why it never fills up
+
+1. **Create** — a four-letter code, a row in `imposter_rooms`.
+2. **Play as long as you like** — after a game ends, *Play again* deals a fresh round to the same table, as
+   many times as the group wants. Everyone stays in their seat.
+3. **Close** — when the table is finished, the host closes the room. That **deletes the row**: the room, its
+   players, its secrets and its history are gone. Nobody can rejoin a closed room, and a player still looking
+   at it gets a plain *the host closed this room* screen.
+4. **Housekeeping** — a room nobody has touched for three hours is deleted by the same sweep (available
+   manually in BLACK BOX → ROOM MANAGEMENT).
+
+Because every finished game gives its storage back, a single free Supabase project comfortably hosts far more
+than 50–100 players: nothing accumulates except rooms that are actually in play right now.
+
+### One-time setup for everyone (no per-device paste)
+
+Pasting the URL and anon key *in the app* configures **that device only**, so every new phone would need the
+same two values. Instead, publish them once:
+
+1. Open **BLACK BOX → BACKEND** on any configured device.
+2. Press **Copy runtime-config.json** (or *Download the file*) — the panel builds the finished file from the
+   values you already have.
+3. Save it as `public/runtime-config.json` in the repository and push. It is served next to `index.html`
+   (the build copies it into `dist/` and `docs/`).
+
+Every visitor — any device, any browser, forever — is then connected automatically and is never asked to paste
+anything. Precedence per device is: values saved in the app → `runtime-config.json` → build-time
+`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`.
 
 ---
 

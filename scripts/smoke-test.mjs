@@ -233,6 +233,111 @@ if (window.__verifyAdminPassword) {
   await wait(200)
 }
 
+/* ------------------------------------------------------------------ */
+/* 7b. Online setup: the room you configure is the room you get        */
+/* ------------------------------------------------------------------ */
+/* Reported twice from the field: the Imposters stepper snapped back and
+   the Turn length stepper did nothing while creating a room. Both were
+   silent clamps — this drives the real form and reads the real values. */
+
+/* Configure through the real panel, the way a host does the first time. */
+const setValue = (input, value) => {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+  setter.call(input, value)
+  input.dispatchEvent(new window.Event('input', { bubbles: true }))
+}
+
+await navigate('online')
+await wait(360)
+const openBackend = buttonMatching(/Connect a backend/i)
+record('an unconfigured device is offered the backend panel', Boolean(openBackend))
+if (openBackend) {
+  click(openBackend)
+  await wait(420)
+  const urlInput = [...window.document.querySelectorAll('input')].find((i) => /supabase\.co/.test(i.placeholder || ''))
+  const keyInput = [...window.document.querySelectorAll('input')].find((i) => /eyJhbGci/.test(i.placeholder || ''))
+  if (urlInput && keyInput) {
+    setValue(urlInput, 'https://smoketest.supabase.co')
+    setValue(keyInput, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.' + 'x'.repeat(40))
+    await wait(220)
+    const save = buttonMatching(/Save & use/i)
+    click(save)
+    await wait(520)
+    record('saving a backend connects the device', !/Connect a backend to play online/i.test(text()), text().slice(0, 120))
+  } else {
+    record('saving a backend connects the device', false, 'backend fields not found')
+  }
+  await navigate('online')
+  await wait(320)
+}
+
+const createTab = buttonMatching(/Create room/i)
+if (createTab && createTab.getAttribute('aria-pressed') !== 'true') {
+  click(createTab)
+  await wait(260)
+}
+
+const stepperValue = (label) => {
+  const row = [...window.document.querySelectorAll('div')].find((d) => d.querySelector('p')?.textContent.trim() === label)
+  return row?.querySelector('output')?.textContent?.trim() ?? null
+}
+const plusFor = (label) => buttons().find((b) => new RegExp(`increase ${label}`, 'i').test(b.getAttribute('aria-label') || ''))
+const minusFor = (label) => buttons().find((b) => new RegExp(`decrease ${label}`, 'i').test(b.getAttribute('aria-label') || ''))
+
+record('creating a room offers the imposters control', Boolean(plusFor('Imposters')), 'no Increase Imposters button on screen')
+record('creating a room starts at one imposter', stepperValue('Imposters') === '1', `saw ${stepperValue('Imposters')}`)
+
+click(plusFor('Imposters'))
+await wait(160)
+click(plusFor('Imposters'))
+await wait(160)
+record('imposters can be raised while creating a room', stepperValue('Imposters') === '3', `saw ${stepperValue('Imposters')} — a clamp would snap this back to 2`)
+click(minusFor('Imposters'))
+await wait(160)
+record('and lowered again', stepperValue('Imposters') === '2', `saw ${stepperValue('Imposters')}`)
+
+record('creating a room offers the turn length control', Boolean(plusFor('Turn length')))
+record('turn length starts at 30s', stepperValue('Turn length') === '30s', `saw ${stepperValue('Turn length')}`)
+click(plusFor('Turn length'))
+await wait(160)
+record('turn length moves while creating a room', stepperValue('Turn length') === '45s', `saw ${stepperValue('Turn length')} — the old control rounded every step back to 30`)
+click(plusFor('Turn length'))
+await wait(160)
+record('turn length keeps stepping through legal values', stepperValue('Turn length') === '60s', `saw ${stepperValue('Turn length')}`)
+
+/* The dropdown is the themed one, and still a real select underneath. */
+const categoryPicker = window.document.querySelector('#online-category')
+record(
+  'the category dropdown is the themed glass control',
+  Boolean(categoryPicker) && categoryPicker.tagName === 'SELECT' && Boolean(categoryPicker.closest('.select-float')),
+  categoryPicker ? `${categoryPicker.tagName} in ${categoryPicker.parentElement?.className}` : 'not found',
+)
+
+/* ------------------------------------------------------------------ */
+/* 7c. BLACK BOX → BACKEND: publish the values for everyone            */
+/* ------------------------------------------------------------------ */
+window.sessionStorage.setItem('vrdev.imposter.blackbox.unlock', String(Date.now() + 60_000))
+await navigate('blackbox')
+await wait(420)
+record('the admin panel opens with a live session', /SYSTEM STATUS|WORD DATABASE/i.test(text()), text().slice(0, 120))
+const backendTab = buttonMatching(/^BACKEND$/) || findByText('BACKEND', 'button')
+click(backendTab)
+await wait(360)
+const preBlock = [...window.document.querySelectorAll('pre')].find((el) => (el.textContent || '').includes('supabaseUrl'))
+record(
+  'the backend panel hands over a ready runtime-config.json',
+  Boolean(preBlock) && /supabaseAnonKey/.test(preBlock.textContent),
+  preBlock ? preBlock.textContent.slice(0, 60) : 'no config block rendered',
+)
+record(
+  'and explains that publishing it configures every device',
+  /Publish the file below once/i.test(text()) || /every visitor/i.test(text()),
+)
+/* Clean up so the rest of the run is unaffected. */
+window.localStorage.removeItem('vrdev.imposter.backend.config')
+window.localStorage.removeItem('vrdev.imposter.backend.config')
+window.sessionStorage.removeItem('vrdev.imposter.blackbox.unlock')
+
 /* Tutorial */
 await navigate('howto')
 record('tutorial renders its first step', text().includes('Add players') && text().includes('HOUSE RULES'))

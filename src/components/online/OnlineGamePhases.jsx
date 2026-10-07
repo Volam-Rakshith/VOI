@@ -151,12 +151,20 @@ export function OnlineGamePhases({ online, onExit }) {
   }, [room.game?.phase, room.game?.round, room.config?.mode, vibrate])
 
   /* ---------------- winner / result ---------------- */
-  if (view?.screen === 'terminated') {
+  /*
+   * Closing a room deletes its row, so the signal arrives on the connection
+   * rather than in the room document — the last snapshot we hold is stale.
+   * Either way the player gets a clear way out instead of a frozen table.
+   */
+  if (view?.screen === 'terminated' || connection?.state === 'terminated') {
     return (
       <>
         <ScreenHeader title="Room closed" eyebrow="session ended" onBack={onExit} />
         <div className="shell-narrow flex-1 py-6">
-          <InlineNotice tone="error">The host closed this room. Start a new one whenever you are ready.</InlineNotice>
+          <InlineNotice tone="error">
+            The host closed this room and the game is over for everyone. Create a new room whenever you are ready —
+            nothing was left behind on the server.
+          </InlineNotice>
           <Button className="mt-4" variant="primary" fullWidth onClick={onExit}>
             Back to online menu
           </Button>
@@ -206,7 +214,11 @@ export function OnlineGamePhases({ online, onExit }) {
         <ConfirmDialog
           open={Boolean(confirm)}
           title={isHost ? 'Close this room?' : 'Leave this room?'}
-          message={isHost ? 'All players will be disconnected.' : 'You can rejoin with the same name while the room is live.'}
+          message={
+            isHost
+              ? 'Every player is disconnected and the room is deleted — play again first if you want another round. Nobody can rejoin a closed room.'
+              : 'You can rejoin with the same name while the room is live. The host closes it when the table is finished.'
+          }
           confirmLabel={isHost ? 'Close room' : 'Leave'}
           onCancel={() => setConfirm(null)}
           onConfirm={exit}
@@ -222,7 +234,7 @@ export function OnlineGamePhases({ online, onExit }) {
       <>
         {header('secret reveal', <Badge tone="cyan">{`${view.progress.cast}/${view.progress.total} seen`}</Badge>)}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
-          <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+          <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
           <StatusStrip
             round={room.game.round}
             phase="secret reveal"
@@ -286,7 +298,7 @@ export function OnlineGamePhases({ online, onExit }) {
       <>
         {header('briefing')}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
-          <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+          <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
           <Panel annotated className="mx-auto w-full max-w-md">
             <PanelBody className="space-y-4 text-center">
               <Badge tone="cyan">round {room.game.round}</Badge>
@@ -325,7 +337,7 @@ export function OnlineGamePhases({ online, onExit }) {
       <>
         {header('clues', <Badge tone={view.isMyTurn ? 'magenta' : 'muted'}>{view.isMyTurn ? 'your turn' : 'waiting'}</Badge>)}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
-          <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+          <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
           <StatusStrip
             round={room.game.round}
             phase="clues"
@@ -408,7 +420,7 @@ export function OnlineGamePhases({ online, onExit }) {
       <>
         {header('voting', <Badge tone={progress.complete ? 'emerald' : 'amber'}>{`${progress.cast}/${progress.total} voted`}</Badge>)}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
-          <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+          <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
 
           {!view.amAlive ? (
             <InlineNotice tone="warn">You are out of the game — you can watch, but only living players vote.</InlineNotice>
@@ -465,7 +477,7 @@ export function OnlineGamePhases({ online, onExit }) {
       <>
         {header('final guess', <Badge tone="magenta">one guess</Badge>)}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
-          <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+          <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
           <GuessPanel
             pending={pending}
             waiting={waiting}
@@ -498,7 +510,7 @@ export function OnlineGamePhases({ online, onExit }) {
       <>
         {header('result', <Badge tone={result?.tie ? 'amber' : 'magenta'}>{result?.tie ? 'tied' : 'eliminated'}</Badge>)}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
-          <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+          <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
 
           <div className="text-center">
             <p className="label text-[9px]">the table accused</p>
@@ -563,7 +575,7 @@ export function OnlineGamePhases({ online, onExit }) {
     <>
       {header('syncing')}
       <div className="shell-narrow flex-1 py-6">
-        <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+        <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
         <p className="mt-4 text-center text-[12.5px] text-violet-200/60">Syncing the room…</p>
       </div>
     </>

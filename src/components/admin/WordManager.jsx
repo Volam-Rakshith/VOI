@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '../ui/Button.jsx'
-import { Field, SegmentedControl } from '../ui/Controls.jsx'
+import { Field, SegmentedControl, Select } from '../ui/Controls.jsx'
 import { Badge } from '../ui/Layout.jsx'
 import { Panel, PanelBody, PanelHeader } from '../ui/Panel.jsx'
 import { EmptyState, InlineNotice } from '../ui/Feedback.jsx'
@@ -136,18 +136,17 @@ export function WordManager() {
         />
         <PanelBody>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="flex-1">
-              <label htmlFor="wb-category" className="label mb-1.5 block">
-                category
-              </label>
-              <select id="wb-category" className="field" value={activeCategory?.id || ''} onChange={(event) => setCategoryId(event.target.value)}>
-                {bank.categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name} ({category.words.length})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              className="flex-1"
+              id="wb-category"
+              label="category"
+              value={activeCategory?.id || ''}
+              onChange={(event) => setCategoryId(event.target.value)}
+              options={bank.categories.map((category) => ({
+                value: category.id,
+                label: `${category.name} · ${category.words.length} words`,
+              }))}
+            />
             <div className="flex gap-2 sm:items-end">
               <Button size="sm" variant="ghost" onClick={() => setCategoryModal({ mode: 'create', name: '' })}>
                 + Category
@@ -211,18 +210,13 @@ export function WordManager() {
                   if (event.key === 'Enter') submitWord()
                 }}
               />
-              <select
-                className="field sm:w-36"
+              <Select
+                className="select-float--inline sm:w-40"
                 value={draft.difficulty}
-                aria-label="Difficulty"
+                ariaLabel="Difficulty"
                 onChange={(event) => setDraft((d) => ({ ...d, difficulty: event.target.value }))}
-              >
-                {DIFFICULTY_TIERS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+                options={DIFFICULTY_TIERS.map((t) => ({ value: t, label: t === 'easy' ? 'casual' : t === 'medium' ? 'sharp' : 'vicious' }))}
+              />
               <Button size="md" variant="primary" onClick={submitWord}>
                 Add
               </Button>

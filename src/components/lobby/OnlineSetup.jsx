@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Button } from '../ui/Button.jsx'
-import { Field, SegmentedControl, Stepper } from '../ui/Controls.jsx'
+import { Field, SegmentedControl, Select, Stepper } from '../ui/Controls.jsx'
 import { Badge, Glyph } from '../ui/Layout.jsx'
 import { ErrorState, InlineNotice } from '../ui/Feedback.jsx'
 import { LIMITS } from '../../data/constants.js'
@@ -36,16 +36,27 @@ export function OnlineSetup({
   const [name, setName] = useState(defaultName || lastSession?.name || '')
   const [code, setCode] = useState(lastSession?.code || '')
   const [errors, setErrors] = useState({})
-  const [config, setConfig] = useState(() =>
-    sanitizeConfig({
+  /*
+   * Config for the room being created.
+   *
+   * `sanitizeConfig` clamps the imposter count to `floor((players - 1) / 2)` of
+   * the PLAYER COUNT — and at this point no room exists yet, so it assumed the
+   * default six players (a ceiling of two) and quietly rewrote the value back
+   * on every render. That is what made the Imposters stepper look broken while
+   * creating a room. Here the count is deliberately NOT clamped: the room is
+   * created capped at four imposters and the lobby re-checks it against the
+   * real roster before the game starts.
+   */
+  const [config, setConfig] = useState(() => ({
+    ...sanitizeConfig({
       imposterCount: 1,
       turnSeconds: 30,
-      rounds: 2,
       categoryId: 'random',
       difficulty: 'mixed',
-      winRule: 'classic',
     }),
-  )
+    playerCount: ONLINE_LIMITS.MAX_PLAYERS,
+    imposterCount: 1,
+  }))
   const [categoryId, setCategoryId] = useState('random')
   const chaos = config.mode === 'chaos'
 
@@ -212,27 +223,28 @@ export function OnlineSetup({
             />
             <Stepper
               label="Turn length"
+              hint="How long each player gets for their clue"
               value={config.turnSeconds}
               min={15}
               max={90}
+              step={15}
+              values={[15, 30, 45, 60, 90]}
               suffix="s"
               onChange={(value) => setConfig((c) => ({ ...c, turnSeconds: nearestTurn(value) }))}
             />
           </div>
 
           <div className="glass clip-hud-sm space-y-3 px-3.5 py-3">
-            <div>
-              <label htmlFor="online-category" className="label mb-2 block">
-                category
-              </label>
-              <select id="online-category" className="field" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name} ({category.count} words)
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              id="online-category"
+              label="category"
+              value={categoryId}
+              onChange={(event) => setCategoryId(event.target.value)}
+              options={categories.map((category) => ({
+                value: category.id,
+                label: `${category.name} · ${category.count} words`,
+              }))}
+            />
             <SegmentedControl
               size="sm"
               label="difficulty"

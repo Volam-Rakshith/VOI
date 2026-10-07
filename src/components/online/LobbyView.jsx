@@ -7,7 +7,7 @@ import { Button } from '../ui/Button.jsx'
 import { Badge, ScreenHeader, StatBlock } from '../ui/Layout.jsx'
 import { Panel, PanelBody, PanelHeader } from '../ui/Panel.jsx'
 import { InlineNotice } from '../ui/Feedback.jsx'
-import { SegmentedControl, Stepper } from '../ui/Controls.jsx'
+import { SegmentedControl, Select, Stepper } from '../ui/Controls.jsx'
 import { ConfirmDialog } from '../ui/ConfirmDialog.jsx'
 import { RoomCodeCard } from '../lobby/RoomCodeCard.jsx'
 import { PlayerList } from '../lobby/PlayerList.jsx'
@@ -58,7 +58,7 @@ export function LobbyView({ online, onExit }) {
       />
 
       <div className="shell-narrow flex-1 space-y-4 pb-6">
-        <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+        <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
 
         <RoomCodeCard code={room.code} compact />
 
@@ -91,8 +91,7 @@ export function LobbyView({ online, onExit }) {
               <Badge tone="muted">{room.config.difficulty}</Badge>
               <Badge tone="muted">{room.config.turnSeconds}s turns</Badge>
               <Badge tone={chaos ? 'magenta' : 'muted'}>{chaos ? 'chaos mode' : 'normal mode'}</Badge>
-              <Badge tone="muted">{room.config.winRule === 'survival' ? 'manhunt' : 'classic'}</Badge>
-              <Badge tone="muted">{room.config.rounds} round{room.config.rounds === 1 ? '' : 's'}</Badge>
+              <Badge tone="muted">last side standing</Badge>
             </div>
 
             {isHost && showSetup && (
@@ -120,38 +119,26 @@ export function LobbyView({ online, onExit }) {
                     if (!result.ok) toast.error(result.error)
                   }}
                 />
-                <Stepper
-                  label="Rounds"
-                  value={room.config.rounds}
-                  min={1}
-                  max={6}
-                  onChange={async (value) => {
-                    const result = await actions.updateConfig({ rounds: value })
+                <Select
+                  id="lobby-category"
+                  label="category"
+                  value={room.config.categoryIds?.[0] || 'random'}
+                  onChange={async (event) => {
+                    const id = event.target.value
+                    const label = categories.find((c) => c.id === id)?.name || 'Random'
+                    const result = await actions.updateConfig({ categoryIds: [id], categoryLabel: label })
                     if (!result.ok) toast.error(result.error)
                   }}
+                  options={categories.map((category) => ({
+                    value: category.id,
+                    label: `${category.name} · ${category.count} words`,
+                  }))}
                 />
-                <div>
-                  <label htmlFor="lobby-category" className="label mb-1.5 block">
-                    category
-                  </label>
-                  <select
-                    id="lobby-category"
-                    className="field"
-                    value={room.config.categoryIds?.[0] || 'random'}
-                    onChange={async (event) => {
-                      const id = event.target.value
-                      const label = categories.find((c) => c.id === id)?.name || 'Random'
-                      const result = await actions.updateConfig({ categoryIds: [id], categoryLabel: label })
-                      if (!result.ok) toast.error(result.error)
-                    }}
-                  >
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name} ({category.count})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* One win rule: the game ends when a side runs out of players. */}
+                <p className="text-[11.5px] leading-relaxed text-violet-200/50">
+                  The game ends when one side has nobody left — a caught imposter gets one guess at the word first, and a split
+                  vote removes nobody.
+                </p>
                 <SegmentedControl
                   size="sm"
                   label="difficulty"
@@ -233,8 +220,8 @@ export function LobbyView({ online, onExit }) {
         title={confirm === 'close' ? 'Close this room?' : 'Leave this room?'}
         message={
           confirm === 'close'
-            ? 'Every player will be disconnected immediately and the room code becomes unusable.'
-            : 'You can rejoin later with the same name and room code while the game is still running.'
+            ? 'Every player is disconnected and the room is deleted, so the code can never be reused. Open a new room whenever you want another game.'
+            : 'You can rejoin later with the same name and room code while the room is still live.'
         }
         confirmLabel={confirm === 'close' ? 'Close room' : 'Leave'}
         onCancel={() => setConfirm(null)}

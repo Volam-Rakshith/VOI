@@ -38,6 +38,7 @@ export function BackendPanel({ onChanged = null, compact = false }) {
   const [showKey, setShowKey] = useState(false)
   const [busy, setBusy] = useState(null)
   const [notice, setNotice] = useState(null)
+  const [copied, setCopied] = useState(false)
 
   const refresh = (next = null) => {
     setStatus(next || describeBackend())
@@ -95,6 +96,51 @@ export function BackendPanel({ onChanged = null, compact = false }) {
       message: 'Saved on this device and applied immediately — no rebuild, no redeploy.',
     })
     refresh()
+  }
+
+  /*
+   * The "for everyone" path.
+   *
+   * A device that has never been configured cannot look anything up online —
+   * it does not know which project to ask. The one place every visitor already
+   * looks is `runtime-config.json` published next to index.html, so publishing
+   * the values there is what stops each device being asked one by one. The
+   * panel hands over the finished file so it is a copy-paste, not a manual edit.
+   */
+  const runtimeFile = useMemo(() => {
+    const active = readStoredBackend() || getActiveBackend()
+    const url = (draft.url.trim() || active.url || '').replace(/\/+$/, '')
+    const key = draft.anonKey.trim() || active.anonKey || ''
+    return `${JSON.stringify(
+      {
+        _comment:
+          'Runtime backend configuration. Both values are public (project URL + anon key) and are read by every visitor. Empty values fall back to the build-time VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.',
+        supabaseUrl: url,
+        supabaseAnonKey: key,
+      },
+      null,
+      2,
+    )}\n`
+  }, [draft])
+
+  const copyRuntimeFile = async () => {
+    try {
+      await navigator.clipboard.writeText(runtimeFile)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2200)
+    } catch {
+      setNotice({ tone: 'error', title: 'Could not copy', message: 'Select the text and copy it by hand.' })
+    }
+  }
+
+  const downloadRuntimeFile = () => {
+    const blob = new Blob([runtimeFile], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'runtime-config.json'
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   const handleClear = async () => {
@@ -210,17 +256,54 @@ export function BackendPanel({ onChanged = null, compact = false }) {
         </div>
       </div>
 
+      {/* Publish for everyone --------------------------------------------- */}
+      <div className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/[0.06] p-3.5">
+        <p className="mb-1.5 font-bold uppercase tracking-[0.18em] text-fuchsia-200/90">
+          Let everyone in without asking them
+        </p>
+        <p className="text-[11.5px] leading-relaxed text-violet-100/70">
+          Saving above configures <strong className="text-violet-50">this device only</strong>, so every new phone
+          would have to be handed the same two values.{' '}
+          <strong className="text-violet-50">Publish the file below once</strong> and every visitor — any device, any
+          browser, forever — is configured automatically, with nothing to paste. It is the same two public values,
+          sitting in one file beside <code className="font-mono text-[11px]">index.html</code>.
+        </p>
+        <pre className="mt-2.5 max-h-44 overflow-auto rounded-xl border border-violet-400/20 bg-black/50 p-3 font-mono text-[10.5px] leading-relaxed text-cyan-100/85">
+          {runtimeFile}
+        </pre>
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          <Button variant="primary" size="sm" onClick={copyRuntimeFile}>
+            {copied ? 'Copied ✓' : 'Copy runtime-config.json'}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={downloadRuntimeFile}>
+            Download the file
+          </Button>
+        </div>
+        <ol className="ml-4 mt-2.5 list-decimal space-y-1 text-[11.5px] leading-relaxed text-violet-100/70">
+          <li>
+            Save it as <code className="font-mono text-[11px]">public/runtime-config.json</code> in the repository (or
+            drop it straight into the deployed folder next to <code className="font-mono text-[11px]">index.html</code>).
+          </li>
+          <li>Commit and push once — no rebuild needed.</li>
+          <li>
+            Everybody who opens the link is connected already. The <em>Connect a backend</em> prompt only appears on a
+            device when no published values can be found at all.
+          </li>
+        </ol>
+      </div>
+
       {/* Help -------------------------------------------------------------- */}
       <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/[0.05] p-3.5 text-[11.5px] leading-relaxed text-violet-100/70">
         <p className="mb-1.5 font-bold uppercase tracking-[0.18em] text-cyan-200/90">Three ways to configure</p>
         <ol className="ml-4 list-decimal space-y-1">
           <li>
             <strong className="text-violet-50">Here</strong> — paste once on each device; stored locally, applied
-            instantly.
+            instantly, and it overrides everything else on that device.
           </li>
           <li>
-            <strong className="text-violet-50">runtime-config.json</strong> — edit the file published beside{' '}
-            <code className="font-mono text-[11px]">index.html</code>; every visitor picks it up with no rebuild.
+            <strong className="text-violet-50">runtime-config.json</strong> — the published file beside{' '}
+            <code className="font-mono text-[11px]">index.html</code>: <strong>the global one</strong>. Every visitor is
+            configured with nothing to paste. Use the box above to produce it.
           </li>
           <li>
             <strong className="text-violet-50">Build variables</strong> — <code className="font-mono text-[11px]">VITE_SUPABASE_URL</code> and{' '}

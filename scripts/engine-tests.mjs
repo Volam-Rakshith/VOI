@@ -868,7 +868,7 @@ test('an unconfigured build never pretends to be online', () => {
 
 test('user-facing room errors are friendly, never raw', () => {
   const cases = {
-    NOT_FOUND: 'ROOM NOT FOUND',
+    NOT_FOUND: 'closed',
     FULL: 'THIS ROOM IS FULL',
     STARTED: 'GAME IN PROGRESS',
     EXPIRED: 'expired',
@@ -1442,7 +1442,62 @@ test('the stored digest matches the salted passphrase', () => {
     )
   })
 
-  test('the online host keeps the same chaos cadence as pass & play', () => {
+  test('closing a room deletes it, so nothing accumulates', async () => {
+  const { readFileSync } = await import('node:fs')
+  const service = readFileSync(new URL('../src/lib/onlineService.js', import.meta.url), 'utf8')
+  const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8')
+
+  /* The client: RPC first, plain delete as the fallback — never the old
+     `room = null` update that the not-null column rejects. */
+  const terminate = service.slice(service.indexOf('export async function terminateRoom'), service.indexOf('export async function sweepExpiredRooms'))
+  assert.ok(terminate.includes("callRpc('imposter_terminate_room'"), 'the RPC is tried first')
+  assert.ok(terminate.includes('.delete()'), 'the fallback deletes the row')
+  assert.ok(!/room:\s*null/.test(terminate), 'the fallback never nulls a not-null column')
+
+  /* Housekeeping deletes stale rows rather than flagging them. */
+  const sweep = service.slice(service.indexOf('export async function sweepExpiredRooms'), service.indexOf('export async function sweepExpiredRooms') + 600)
+  assert.ok(sweep.includes('.delete()'), 'the sweep deletes')
+  assert.ok(!sweep.includes('status: ROOM_STATUS.TERMINATED'), 'no status flagging left')
+
+  /* The database agrees. */
+  const terminateFn = schema.slice(schema.indexOf('create or replace function public.imposter_terminate_room'), schema.indexOf('create or replace function public.imposter_sweep_expired'))
+  assert.ok(/delete from public\.imposter_rooms/.test(terminateFn), 'terminate deletes the row')
+  const sweepFn = schema.slice(schema.indexOf('create or replace function public.imposter_sweep_expired'), schema.indexOf('grant execute on function public.imposter_terminate_room'))
+  assert.ok(/delete from public\.imposter_rooms/.test(sweepFn), 'the sweep deletes the row')
+  assert.ok(schema.includes('create policy "rooms deletable"'), 'a delete policy exists for the client fallback')
+  assert.ok(schema.includes('grant select, insert, update, delete on public.imposter_rooms'), 'delete is granted')
+  assert.ok(schema.includes('delete from public.imposter_rooms where code = upper(p_code);'), 'a host leaving an empty room takes the row with it')
+})
+
+test('a deleted room tells the watchers the host closed it', async () => {
+  const { readFileSync } = await import('node:fs')
+  const service = readFileSync(new URL('../src/lib/onlineService.js', import.meta.url), 'utf8')
+  const handler = service.slice(service.indexOf("'postgres_changes'"), service.indexOf("'postgres_changes'") + 900)
+  assert.ok(handler.includes("payload.eventType === 'DELETE'"), 'the DELETE event is handled')
+  assert.ok(/onStatus\?\.\('terminated'\)/.test(handler), 'and reported as a closed room')
+  assert.ok(service.includes('That room is closed'), 'the copy says the room is closed, not "not found"')
+})
+
+test('the create-room form can actually change imposters and turn length', async () => {
+  const { readFileSync } = await import('node:fs')
+  const setup = readFileSync(new URL('../src/components/lobby/OnlineSetup.jsx', import.meta.url), 'utf8')
+
+  /* The bug: sanitizeConfig clamped imposterCount to floor((playerCount-1)/2)
+     of the DEFAULT six-player count, so the stepper snapped back to 2. */
+  const init = setup.slice(setup.indexOf('const [config, setConfig]'), setup.indexOf('const [categoryId, setCategoryId]'))
+  assert.ok(!/sanitizeConfig\(\{[^}]*playerCount/.test(init), 'the create config is not clamped to a player count that does not exist yet')
+  assert.ok(init.includes('imposterCount: 1'), 'imposters start at one')
+
+  /* The turn length must move between the values the app accepts. */
+  assert.ok(setup.includes('values={[15, 30, 45, 60, 90]}'), 'turn length steps through every legal value')
+  assert.ok(setup.includes('step={15}'), 'and moves a full step at a time')
+
+  /* Both controls exist on the create form. */
+  assert.ok(/label="Imposters"/.test(setup), 'the imposters stepper is rendered')
+  assert.ok(/label="Turn length"/.test(setup), 'the turn length stepper is rendered')
+})
+
+test('the online host keeps the same chaos cadence as pass & play', () => {
     /* Chaos is an event every 3-5 rounds online too — it used to re-roll every
        single round, which is exactly what the rules forbid. */
     const startGame = bodyOf('startGame')

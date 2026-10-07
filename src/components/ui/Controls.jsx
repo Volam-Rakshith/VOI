@@ -94,9 +94,32 @@ export function SegmentedControl({ options, value, onChange, label, size = 'md',
   )
 }
 
-export function Stepper({ value, min, max, onChange, label, hint, suffix = '', disabled = false }) {
-  const dec = () => !disabled && onChange(Math.max(min, value - 1))
-  const inc = () => !disabled && onChange(Math.min(max, value + 1))
+/**
+ * Stepper — − / value / +.
+ *
+ * `step` moves by more than one at a time, and `values` restricts the control to
+ * a fixed list (the five legal turn lengths, for instance), so a caller that
+ * needs specific numbers never has to round a stray one back into place.
+ */
+export function Stepper({ value, min, max, onChange, label, hint, suffix = '', disabled = false, step = 1, values }) {
+  const list = Array.isArray(values) && values.length ? [...values].sort((a, b) => a - b) : null
+  const lowest = list ? list[0] : min
+  const highest = list ? list[list.length - 1] : max
+  const nextIn = (direction) => {
+    if (list) {
+      const index = list.indexOf(value)
+      if (index === -1) return direction > 0 ? list[0] : list[list.length - 1]
+      return list[Math.min(list.length - 1, Math.max(0, index + direction))] ?? value
+    }
+    return Math.min(highest, Math.max(lowest, value + direction * step))
+  }
+  const dec = () => !disabled && onChange(nextIn(-1))
+  const inc = () => !disabled && onChange(nextIn(1))
+  const filled = list
+    ? Math.max(0, list.indexOf(value)) / Math.max(1, list.length - 1)
+    : highest === lowest
+      ? 1
+      : (value - lowest) / (highest - lowest)
   return (
     <div className="py-2">
       <div className="flex items-center justify-between gap-3">
@@ -108,7 +131,7 @@ export function Stepper({ value, min, max, onChange, label, hint, suffix = '', d
           <button
             type="button"
             onClick={dec}
-            disabled={disabled || value <= min}
+            disabled={disabled || (list ? list.indexOf(value) <= 0 : value <= lowest)}
             aria-label={`Decrease ${label}`}
             className="grid h-10 w-10 place-items-center rounded-lg border border-violet-400/35 bg-black/40 text-lg font-bold text-violet-100 transition active:scale-95 disabled:opacity-30"
           >
@@ -124,7 +147,7 @@ export function Stepper({ value, min, max, onChange, label, hint, suffix = '', d
           <button
             type="button"
             onClick={inc}
-            disabled={disabled || value >= max}
+            disabled={disabled || (list ? list.indexOf(value) >= list.length - 1 : value >= highest)}
             aria-label={`Increase ${label}`}
             className="grid h-10 w-10 place-items-center rounded-lg border border-violet-400/35 bg-black/40 text-lg font-bold text-violet-100 transition active:scale-95 disabled:opacity-30"
           >
@@ -135,10 +158,55 @@ export function Stepper({ value, min, max, onChange, label, hint, suffix = '', d
       <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/8">
         <motion.div
           className="h-full rounded-full bg-gradient-to-r from-cyan-neon via-limb to-magenta-neon"
-          animate={{ width: `${max === min ? 100 : ((value - min) / (max - min)) * 100}%` }}
+          animate={{ width: `${filled * 100}%` }}
           transition={{ type: 'spring', stiffness: 260, damping: 30 }}
         />
       </div>
+    </div>
+  )
+}
+
+/**
+ * Select — the themed dropdown.
+ *
+ * The native control is kept (keyboard, screen readers, mobile pickers all keep
+ * working) but its popup is themed as a floating frosted-glass panel: a blurred,
+ * translucent card with a neon hairline border that lifts over the page, and
+ * options that light up under the cursor. On platforms that ignore option
+ * styling the list simply falls back to the system one.
+ */
+export function Select({ label, hint, options = [], value, onChange, id, className = '', disabled = false, ariaLabel }) {
+  const autoId = useId()
+  const selectId = id || `select-${autoId}`
+  return (
+    <div className={className}>
+      {label && (
+        <label htmlFor={selectId} className="label mb-1.5 block">
+          {label}
+        </label>
+      )}
+      <div className="select-float relative">
+        <select
+          id={selectId}
+          className="field select-float__control"
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          aria-label={ariaLabel || undefined}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span className="select-float__caret" aria-hidden="true">
+          <svg viewBox="0 0 12 8" width="11" height="8" fill="none">
+            <path d="M1 1.5 6 6.5l5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      </div>
+      {hint && <p className="mt-1.5 text-[11px] text-violet-200/50">{hint}</p>}
     </div>
   )
 }

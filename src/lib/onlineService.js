@@ -150,7 +150,9 @@ export const friendlyRoomError = (error) => {
     case 'FORBIDDEN':
       return 'The database rejected that request. Re-check your Supabase policies.'
     case 'NOT_FOUND':
-      return 'ROOM NOT FOUND — check the room code and try again.'
+      /* A closed room is deleted, so "not found" usually means the host has
+         finished with it. Say that plainly instead of implying a typo. */
+      return 'That room is closed — the host has finished with it. Ask them to open a new one, or create your own.'
     case 'FULL':
       return 'THIS ROOM IS FULL'
     case 'STARTED':
@@ -348,7 +350,13 @@ async function mutateRoom(code, transform, extraRow = {}) {
       })
       const result = transform(current)
       if (!result) return { room: current, skipped: true }
-      const { patch, secrets, nextPlayerCount, statusOverride } = result
+      const { patch, secrets, nextPlayerCount, statusOverride, remove } = result
+      /* `remove: true` closes the room by deleting its row — see terminateRoom. */
+      if (remove) {
+        const { error } = await client.from(supabaseConfig.table).delete().eq('code', code)
+        if (error) throw classifyError(error)
+        return { room: null, removed: true }
+      }
       const rowPatch = toRowPatch(patch, {
         ...extraRow,
         ...(statusOverride ? { status: statusOverride } : {}),
@@ -514,7 +522,11 @@ export async function setPlayerReady({ code, playerId, ready }) {
 /** Leave the lobby. If the host leaves, the room is handed over or closed. */
 export async function leaveRoom({ code, playerId }) {
   const rpc = await callRpc('imposter_leave_room', { p_code: code, p_player_id: playerId })
-  if (rpc.ok) return { room: normalizeRoom(rpc.data?.room ?? rpc.data, { code }) }
+  if (rpc.ok) {
+    /* The host leaving an empty room closes it: the row is already gone. */
+    if (rpc.data?.closed || rpc.data?.room === null) return { room: null, closed: true }
+    return { room: normalizeRoom(rpc.data?.room ?? rpc.data, { code }) }
+  }
 
   const result = await mutateRoom(code, (room) => {
     const leaving = room.players.find((p) => p.id === playerId)
@@ -523,11 +535,8 @@ export async function leaveRoom({ code, playerId }) {
 
     if (leaving.isHost) {
       if (!players.length) {
-        return {
-          patch: { players: [], status: ROOM_STATUS.TERMINATED },
-          nextPlayerCount: 0,
-          statusOverride: ROOM_STATUS.TERMINATED,
-        }
+        /* The host walked out of an empty room: no row left behind to expire. */
+        return { patch: { players: [] }, nextPlayerCount: 0, remove: true }
       }
       // Promote the longest-standing remaining player.
       const nextHost = players.slice().sort((a, b) => a.joinedAt - b.joinedAt)[0]
@@ -536,7 +545,7 @@ export async function leaveRoom({ code, playerId }) {
     }
     return { patch: { players }, nextPlayerCount: players.length }
   })
-  return { room: result.room }
+  return { room: result.room, closed: Boolean(result.removed) }
 }
 
 /** Heartbeat so the lobby can flag dropped players. */
@@ -610,30 +619,39 @@ export async function submitVote({ code, playerId, targetId, round }) {
   return { room: result.room }
 }
 
+/**
+ * Close a room for good.
+ *
+ * A closed room has no future: the code is never reused, the secrets are dead
+ * and every player has finished with it — so the row is DELETED rather than
+ * flagged. That is what keeps the shared free project flat no matter how many
+ * games are played: nothing accumulates.
+ *
+ * The RPC is tried first (it also tells any other client still watching the
+ * row, via the realtime DELETE event). The plain delete is the fallback for a
+ * project whose SQL has not been re-run yet, and it needs the table's delete
+ * policy, which the current schema file grants.
+ */
 export async function terminateRoom(code) {
   const rpc = await callRpc('imposter_terminate_room', { p_code: code })
   if (rpc.ok) return true
   const client = await requireClient()
-  const { error } = await client
-    .from(supabaseConfig.table)
-    .update({
-      status: ROOM_STATUS.TERMINATED,
-      'room': null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('code', code)
+  const { error } = await client.from(supabaseConfig.table).delete().eq('code', code)
   if (error) throw classifyError(error)
   return true
 }
 
-/** Close rooms that have not been touched for the configured TTL. */
+/**
+ * Housekeeping: remove rooms nobody has touched for the configured TTL, plus
+ * any leftover 'terminated' rows from before closing deleted them.
+ */
 export async function sweepExpiredRooms() {
   const client = await requireClient()
+  const stale = new Date(now() - supabaseConfig.roomTtlMinutes * 60_000).toISOString()
   const { error } = await client
     .from(supabaseConfig.table)
-    .update({ status: ROOM_STATUS.TERMINATED, updated_at: new Date().toISOString() })
-    .neq('status', ROOM_STATUS.TERMINATED)
-    .lt('updated_at', new Date(now() - supabaseConfig.roomTtlMinutes * 60_000).toISOString())
+    .delete()
+    .or(`status.eq.${ROOM_STATUS.TERMINATED},updated_at.lt.${stale}`)
   if (error) throw classifyError(error)
   return true
 }
@@ -656,7 +674,16 @@ export function subscribeToRoom(code, { onRoom, onStatus } = {}) {
       'postgres_changes',
       { event: '*', schema: 'public', table: supabaseConfig.table, filter: `code=eq.${code}` },
       (payload) => {
-        const row = payload.new || payload.old
+        /*
+         * Closing a room deletes its row, so a DELETE event is how everybody
+         * else finds out the host has finished with it. (Old rows that were
+         * only flagged 'terminated' are handled the same way.)
+         */
+        if (payload.eventType === 'DELETE') {
+          onStatus?.('terminated')
+          return
+        }
+        const row = payload.new
         if (!row) return
         if (row.status === ROOM_STATUS.TERMINATED) {
           onStatus?.('terminated')

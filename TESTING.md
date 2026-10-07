@@ -28,8 +28,8 @@ Optional but recommended before committing:
 
 ```bash
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
-npm run test:engine   # 115 rule/utility tests → expect "115 passed, 0 failed"
-npm run test:ui       # 106 UI checks (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
+npm run test:engine   # 118 rule/utility tests → expect "118 passed, 0 failed"
+npm run test:ui       # 120 UI checks (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
 npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
 ```
 
@@ -110,6 +110,27 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 - [ ] **Normal Mode is unchanged**: fixed imposter count, strict minority, same reveals and results
 - [ ] Online rooms: the host sees the same Chaos option; after the round ends, **Next round**
       re-rolls every living player's role (eliminated players keep the role they were judged on)
+
+## 2c. Online rooms (create, close, rejoin)
+
+- [ ] Create a room: the **Imposters** stepper moves and stays where you put it (1–4)
+- [ ] Create a room: the **Turn length** stepper steps 30 → 45 → 60 → 90 → 15
+- [ ] The category picker opens the themed frosted-glass dropdown
+- [ ] In the lobby the host can still change imposters / turn length / category / difficulty / mode
+- [ ] Join from a second device using the code; both devices show the same setup
+- [ ] Play a game to the winner screen, then **Play again** — same table, fresh roles and word
+- [ ] Repeat as many times as you like; nothing needs to be re-created
+- [ ] Host taps **Close room** → confirm → every other device shows "the host closed this room" with a way out
+- [ ] That closed code can no longer be joined ("that room is closed")
+- [ ] BLACK BOX → ROOM MANAGEMENT no longer lists the closed room
+- [ ] Leave a room idle for three hours (or press *Sweep expired*) and it disappears from the list
+
+## 2d. One-time setup for everyone
+
+- [ ] BLACK BOX → BACKEND shows a **Copy runtime-config.json** box with your values in it
+- [ ] Paste that file into `public/runtime-config.json`, push, then open the site in a private window
+- [ ] The site connects itself — no *Connect a backend* prompt, nothing to paste
+- [ ] On a device where the file is missing the prompt still appears, and saving there still works
 
 ## 3. Mobile feel (do this on a real phone if possible)
 

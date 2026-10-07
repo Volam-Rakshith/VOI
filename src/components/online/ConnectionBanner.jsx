@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '../ui/Button.jsx'
 
-export function ConnectionBanner({ connection, onRetry }) {
+export function ConnectionBanner({ connection, onRetry, onLeave }) {
   const { state, error } = connection || {}
   const visible = state && !['connected', 'idle'].includes(state)
 
@@ -40,9 +40,14 @@ export function ConnectionBanner({ connection, onRetry }) {
             <p className="font-display text-[10.5px] tracking-[.2em]">{copy.title}</p>
             <p className="mt-0.5 text-[11.5px] leading-snug opacity-80">{copy.body}</p>
           </div>
-          {onRetry && ['offline', 'error', 'terminated'].includes(state) && (
+          {onRetry && ['offline', 'error'].includes(state) && (
             <Button size="sm" variant="quiet" className="shrink-0 !min-h-8 !px-2 !text-[10px]" onClick={() => onRetry()}>
               Retry
+            </Button>
+          )}
+          {onLeave && state === 'terminated' && (
+            <Button size="sm" variant="quiet" className="shrink-0 !min-h-8 !px-2 !text-[10px]" onClick={() => onLeave()}>
+              Leave
             </Button>
           )}
         </motion.div>

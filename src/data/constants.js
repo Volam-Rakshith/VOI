@@ -8,7 +8,7 @@ export const BRAND = {
   game: 'IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.6',
+  version: '1.0.7',
 }
 
 export const LIMITS = {
