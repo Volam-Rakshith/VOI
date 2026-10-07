@@ -66,6 +66,8 @@ const runtimeConfig = await import('../src/lib/runtimeConfig.js')
 const supabaseLib = await import('../src/lib/supabase.js')
 
 const SECRET = { word: { word: 'Umbrella', categoryId: 'everyday', categoryName: 'Everyday', difficulty: 'easy', decoy: 'Raincoat' } }
+/** The engine stores the payload unwrapped — this is the word players would guess. */
+const SECRET_WORD = SECRET.word.word
 const names = (n) => Array.from({ length: n }, (_, i) => `Player ${i + 1}`)
 const config = (over = {}) => ({ playerCount: 6, imposterCount: 1, turnSeconds: 30, rounds: 2, winRule: 'classic', voteMode: 'secret', clueOrder: 'random', categoryIds: ['random'], difficulty: 'mixed', ...over })
 
@@ -216,7 +218,7 @@ function voteSetup({ count = 5, imposters = 1, winRule = 'classic', voteMode = '
   return game
 }
 
-test('a tied vote leaves nobody out and hands classic mode to the imposters', () => {
+test('a split vote removes nobody and keeps the game running', () => {
   let game = voteSetup({ count: 4 })
   const [a, b, c, d] = game.players.map((p) => p.id)
   game = engine.castVote(game, a, c)
@@ -227,170 +229,208 @@ test('a tied vote leaves nobody out and hands classic mode to the imposters', ()
   game = engine.resolveRound(game)
   assert.equal(game.lastResult.tie, true)
   assert.equal(game.lastResult.eliminatedId, null)
-  assert.equal(game.winner.team, 'imposter')
+  assert.equal(game.winner, null, 'a split vote can never end the game')
+  assert.ok(game.players.every((p) => p.alive), 'nobody is removed on a split vote')
+  assert.equal(game.phase, 'result')
+})
+
+test('a two-player tie ends the round instead of looping forever', () => {
+  let game = voteSetup({ count: 2, imposters: 1 })
+  const imposters = game.players.filter((p) => p.role === 'imposter')
+  assert.equal(imposters.length, 1, 'the deal must leave one imposter on a two-player table')
+  const crewId = game.players.find((p) => p.role === 'crew').id
+  const imposterId = imposters[0].id
+
+  /* Each of the last two players can only vote for the other — a 1-1 tie. */
+  game = engine.castVote(game, crewId, imposterId)
+  game = engine.castVote(game, imposterId, crewId)
+  game = engine.resolveRound(game)
+
+  assert.equal(game.lastResult.tie, true)
+  assert.equal(game.lastResult.stalemate, true)
+  assert.equal(game.lastResult.eliminatedId, null, 'nobody is removed by the stalemate')
+  assert.equal(game.winner?.team, 'imposter', 'an unbreakable tie hands the game over')
+  assert.equal(game.phase, 'result')
+  assert.equal(game.players.filter((p) => p.alive).length, 2, 'both players stay on the roster')
+})
+
+test('a tie with three or more players still removes nobody', () => {
+  const game = engine.resolveRound(((g) => {
+    const [a, b, c] = g.players.map((p) => p.id)
+    let next = engine.castVote(g, a, b)
+    next = engine.castVote(next, b, c)
+    next = engine.castVote(next, c, a)
+    return next
+  })(voteSetup({ count: 3 })))
+  assert.equal(game.lastResult.tie, true)
+  assert.equal(game.winner, null, 'only a two-player tie is a stalemate')
   assert.ok(game.players.every((p) => p.alive))
 })
 
-test('crew wins when the imposter is voted out', () => {
+test('a caught imposter gets one guess before anything is decided', () => {
   let game = voteSetup({ count: 5 })
   const imposter = game.players.find((p) => p.role === 'imposter')
-  const others = game.players.filter((p) => p.id !== imposter.id)
-  others.forEach((voter) => {
+  game.players.filter((p) => p.id !== imposter.id).forEach((voter) => {
     game = engine.castVote(game, voter.id, imposter.id)
   })
   game = engine.resolveRound(game)
-  assert.equal(game.lastResult.wasImposter, true)
-  assert.equal(game.winner.team, 'crew')
-  assert.equal(game.players.find((p) => p.id === imposter.id).alive, false)
+
+  assert.equal(game.phase, 'guess', 'the accused is handed the device to guess')
+  assert.equal(game.pendingGuess.playerId, imposter.id)
+  assert.equal(game.winner, null, 'nothing is settled until the guess is made')
+  assert.equal(game.players.find((p) => p.id === imposter.id).alive, false, 'they are still removed')
 })
 
-test('imposters win when the wrong player is accused (classic)', () => {
-  let game = voteSetup({ count: 5 })
-  const imposter = game.players.find((p) => p.role === 'imposter')
-  const crew = game.players.filter((p) => p.role === 'crew')
-  const victim = crew[0]
-  const voters = game.players.filter((p) => p.id !== victim.id)
-  voters.forEach((voter) => {
-    game = engine.castVote(game, voter.id, victim.id)
-  })
-  game = engine.resolveRound(game)
-  assert.equal(game.lastResult.wasImposter, false)
-  assert.equal(game.winner.team, 'imposter')
-  assert.equal(game.players.find((p) => p.id === imposter.id).alive, true)
-})
-
-test('classic: catching ONE of several imposters wins the round', () => {
-  // The exact scenario that confused a real game: 7 players, 3 imposters, one caught.
-  let game = voteSetup({ count: 7, imposters: 3 })
-  const imposters = game.players.filter((p) => p.role === 'imposter')
-  const target = imposters[0]
-  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, target.id)
-  })
-  game = engine.resolveRound(game)
-  assert.equal(game.lastResult.wasImposter, true)
-  assert.equal(game.winner.team, 'crew', 'a caught imposter must not hand the game to the imposters')
-  assert.equal(game.players.filter((p) => p.role === 'imposter' && p.alive).length, 2, 'the other two stay in play')
-})
-
-test('classic: the verdict never claims a crew member was accused when an imposter was caught', () => {
-  let game = voteSetup({ count: 7, imposters: 3 })
+test('a correct final guess hands the whole game to the imposters', () => {
+  let game = voteSetup({ count: 6, imposters: 2 })
   const target = game.players.find((p) => p.role === 'imposter')
   game.players.filter((p) => p.id !== target.id).forEach((voter) => {
     game = engine.castVote(game, voter.id, target.id)
   })
   game = engine.resolveRound(game)
-  assert.ok(!/crew member was accused/i.test(game.winner.reason), `misleading copy: "${game.winner.reason}"`)
-  assert.ok(!/wrong player/i.test(game.winner.reason))
-  assert.match(game.winner.reason, /1 of 3 imposters caught/i)
+  const oneLeft = game.players.filter((p) => p.role === 'imposter' && p.alive).length
+  assert.equal(oneLeft, 1, 'a second imposter is still in play')
+
+  game = engine.submitGuess(game, SECRET_WORD)
+  assert.equal(game.winner.team, 'imposter')
+  assert.equal(game.lastResult.guess, 'correct')
+  assert.match(game.winner.reason, /named the secret word/i)
+  assert.equal(game.phase, 'result')
 })
 
-test('classic: accusing a crew member really does hand it to the imposters', () => {
+test('a wrong final guess just removes that imposter', () => {
+  let game = voteSetup({ count: 6, imposters: 2 })
+  const target = game.players.find((p) => p.role === 'imposter')
+  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
+    game = engine.castVote(game, voter.id, target.id)
+  })
+  game = engine.resolveRound(game)
+  game = engine.submitGuess(game, 'definitely not the word')
+
+  assert.equal(game.lastResult.guess, 'wrong')
+  assert.equal(game.winner, null, 'one imposter is still hiding, so play continues')
+  assert.equal(game.phase, 'result')
+})
+
+test('guessing the word when you are the last imposter wins it outright', () => {
+  let game = voteSetup({ count: 5 })
+  const target = game.players.find((p) => p.role === 'imposter')
+  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
+    game = engine.castVote(game, voter.id, target.id)
+  })
+  game = engine.resolveRound(game)
+  assert.equal(game.winner, null)
+  game = engine.submitGuess(game, SECRET_WORD.toUpperCase())
+  assert.equal(game.winner.team, 'imposter', 'case and spacing never matter')
+})
+
+test('guesses are forgiving about case, spacing and punctuation', () => {
+  const build = () => {
+    let game = voteSetup({ count: 5 })
+    const target = game.players.find((p) => p.role === 'imposter')
+    game.players.filter((p) => p.id !== target.id).forEach((voter) => {
+      game = engine.castVote(game, voter.id, target.id)
+    })
+    return engine.resolveRound(game)
+  }
+  const awkward = build()
+  const cleaned = engine.submitGuess(awkward, `  ${SECRET_WORD.toLowerCase()}!! `)
+  assert.equal(cleaned.lastResult.guess, 'correct', 'trailing punctuation and spacing are ignored')
+
+  const empty = build()
+  assert.equal(engine.submitGuess(empty, '   ').lastResult.guess, 'wrong', 'an empty guess is simply wrong')
+})
+
+test('the crew wins only when the last imposter is gone', () => {
   let game = voteSetup({ count: 7, imposters: 3 })
-  const victim = game.players.find((p) => p.role === 'crew')
+  const imposters = game.players.filter((p) => p.role === 'imposter')
+
+  // First catch → guess phase → wrong guess → still playing.
+  game.players.filter((p) => p.id !== imposters[0].id).forEach((voter) => {
+    game = engine.castVote(game, voter.id, imposters[0].id)
+  })
+  game = engine.resolveRound(game)
+  game = engine.submitGuess(game, 'nope')
+  assert.equal(game.winner, null, 'two imposters are still in play')
+
+  game = engine.nextRound(game)
+  assert.equal(game.round, 2)
+  assert.equal(game.phase, 'handoff')
+
+  // Second catch → wrong guess → still playing.
+  game = engine.beginVoting(engine.startRound(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(engine.advanceReveal(game)))))))))
+  const target2 = game.players.find((p) => p.role === 'imposter' && p.alive)
+  game.players.filter((p) => p.alive && p.id !== target2.id).forEach((voter) => {
+    game = engine.castVote(game, voter.id, target2.id)
+  })
+  game = engine.resolveRound(game)
+  game = engine.submitGuess(game, 'nope')
+  assert.equal(game.winner, null)
+
+  // Third catch → the last imposter is gone → crew win.
+  game = engine.nextRound(game)
+  let guard = 0
+  while (game.phase === 'reveal' && guard < 40) {
+    game = engine.hideCard(engine.revealCard(game))
+    game = engine.advanceReveal(game)
+    guard += 1
+  }
+  game = engine.beginVoting(engine.startRound(game))
+  const last = game.players.find((p) => p.role === 'imposter' && p.alive)
+  game.players.filter((p) => p.alive && p.id !== last.id).forEach((voter) => {
+    game = engine.castVote(game, voter.id, last.id)
+  })
+  game = engine.resolveRound(game)
+  game = engine.submitGuess(game, 'nope')
+  assert.equal(game.winner.team, 'crew')
+  assert.match(game.winner.reason, /all 3 imposters were rooted out/i)
+})
+
+test('the imposters win when the last crew member is removed', () => {
+  let game = voteSetup({ count: 3 })
+  const imposter = game.players.find((p) => p.role === 'imposter')
+  const crew = game.players.filter((p) => p.role === 'crew')
+  // Crew vote out one of their own; the imposter joins in.
+  const victim = crew[0]
   game.players.filter((p) => p.id !== victim.id).forEach((voter) => {
     game = engine.castVote(game, voter.id, victim.id)
   })
   game = engine.resolveRound(game)
-  assert.equal(game.winner.team, 'imposter')
-  assert.match(game.winner.reason, /crew member was accused/i)
-})
+  assert.equal(game.winner, null, 'the game continues while any crew remains')
+  assert.equal(game.phase, 'result')
 
-test('classic: a split vote blames the tie, not the players', () => {
-  let game = voteSetup({ count: 4 })
-  const [a, b, c, d] = game.players.map((p) => p.id)
-  game = engine.castVote(game, a, c)
-  game = engine.castVote(game, b, c)
-  game = engine.castVote(game, c, a)
-  game = engine.castVote(game, d, a)
-  game = engine.resolveRound(game)
-  assert.equal(game.winner.team, 'imposter')
-  assert.match(game.winner.reason, /split/i)
-})
-
-test('survival: catching one imposter keeps the hunt going', () => {
-  let game = voteSetup({ count: 7, imposters: 3, winRule: 'survival', rounds: 3 })
-  const target = game.players.find((p) => p.role === 'imposter')
-  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, target.id)
+  game = engine.nextRound(game)
+  let guard = 0
+  while (game.phase === 'reveal' && guard < 40) {
+    game = engine.hideCard(engine.revealCard(game))
+    game = engine.advanceReveal(game)
+    guard += 1
+  }
+  game = engine.beginVoting(engine.startRound(game))
+  const lastCrew = game.players.find((p) => p.role === 'crew' && p.alive)
+  game.players.filter((p) => p.alive && p.id !== lastCrew.id).forEach((voter) => {
+    game = engine.castVote(game, voter.id, lastCrew.id)
   })
   game = engine.resolveRound(game)
-  assert.equal(game.winner, null, 'manhunt continues while imposters remain')
-})
-
-test('survival: clearing every imposter still wins for the crew', () => {
-  // Tested directly against the pure rule, so the phase flow is not a variable.
-  const cleared = {
-    config: { winRule: 'survival', rounds: 4 },
-    round: 2,
-    totalRounds: 4,
-    history: [],
-    players: [
-      { id: 'p1', name: 'a', role: 'imposter', alive: false },
-      { id: 'p2', name: 'b', role: 'imposter', alive: false },
-      { id: 'p3', name: 'c', role: 'crew', alive: true },
-      { id: 'p4', name: 'd', role: 'crew', alive: true },
-      { id: 'p5', name: 'e', role: 'crew', alive: true },
-    ],
-  }
-  assert.equal(engine.determineWinner(cleared).team, 'crew')
-
-  // One imposter against three crew is undecided: the hunt continues.
-  const impostersAhead = { ...cleared, players: cleared.players.map((p) => (p.id === 'p1' ? { ...p, alive: true } : p)) }
-  assert.equal(engine.determineWinner(impostersAhead), null)
-
-  const evenSplit = {
-    config: { winRule: 'survival', rounds: 4 },
-    round: 3,
-    totalRounds: 4,
-    history: [],
-    players: [
-      { id: 'p1', name: 'a', role: 'imposter', alive: true },
-      { id: 'p3', name: 'c', role: 'crew', alive: true },
-    ],
-  }
-  assert.equal(engine.determineWinner(evenSplit).team, 'imposter')
-  assert.match(engine.determineWinner(evenSplit).reason, /match the crew/i)
+  assert.equal(game.winner.team, 'imposter')
+  assert.match(game.winner.reason, /last crew member is gone/i)
 })
 
 test('the rules copy matches what the engine actually does', () => {
-  assert.match(engine.winConditionText('classic'), /catch an imposter and the crew wins instantly/i)
-  assert.match(engine.winConditionText('classic'), /accuse a crew member/i)
-  assert.match(engine.winConditionText('survival'), /equal the crew/i)
+  const copy = engine.winConditionText('lastStanding')
+  assert.match(copy, /until one side has nobody left/i)
+  assert.match(copy, /naming the secret word after being caught/i)
+  assert.match(engine.winConditionText('classic', 'chaos'), /sometimes nobody, sometimes everyone/i)
+  // The old rules are gone for good.
+  assert.ok(!/wins instantly/i.test(copy), 'no instant-win shortcut survives')
+  assert.ok(!/match the crew/i.test(copy), 'no outnumber rule survives')
 })
 
-test('survival mode keeps playing after a wrong accusation', () => {
-  let game = voteSetup({ count: 6, winRule: 'survival', rounds: 3 })
-  const victim = game.players.find((p) => p.role === 'crew').id
-  game.players
-    .filter((p) => p.id !== victim)
-    .forEach((voter) => {
-      game = engine.castVote(game, voter.id, victim)
-    })
-  game = engine.resolveRound(game)
-  assert.equal(game.winner, null)
-  game = engine.nextRound(game)
-  assert.equal(game.round, 2)
-  assert.equal(game.phase, 'handoff')
-  assert.equal(game.players.find((p) => p.id === victim).alive, false)
-})
-
-test('survival mode ends when imposters match the crew', () => {
-  let game = voteSetup({ count: 4, imposters: 1, winRule: 'survival', rounds: 4 })
-  // Eliminate two crew members in a row.
-  for (let round = 0; round < 2; round += 1) {
-    const victim = game.players.find((p) => p.role === 'crew' && p.alive)
-    const voters = game.players.filter((p) => p.alive && p.id !== victim.id)
-    if (!voters.length) break
-    game = engine.startRound({ ...game, phase: engine.PHASE.VOTE_HANDOFF, votes: {}, voteIndex: 0 })
-    voters.forEach((voter) => {
-      game = engine.castVote(game, voter.id, victim.id)
-    })
-    game = engine.resolveRound(game)
-    if (game.winner) break
-    game = engine.nextRound(game)
-  }
-  assert.equal(game.winner?.team, 'imposter')
+test('there is no round limit any more', () => {
+  assert.equal(engine.WIN_RULES.length, 1, 'one rule, one way to win')
+  assert.equal(engine.WIN_RULES[0].id, 'lastStanding')
+  const game = voteSetup({ count: 6, rounds: 1 })
+  assert.equal(engine.determineWinner(game), null, 'a one-round config no longer ends anything')
 })
 
 test('illegal votes are rejected', () => {
@@ -519,6 +559,86 @@ test('a decoy never equals the secret word', () => {
   }
 })
 
+test('a decoy always fits beside the word, never a stranger from another category', () => {
+  /*
+   * The bug this guards: the imposter's cover word for "kitchen sink" came out
+   * as "backpack" — a word from a completely different world. A decoy now comes
+   * from the word's own category first.
+   */
+  const fresh = bank.defaultBank()
+  for (let i = 0; i < 300; i += 1) {
+    const pick = bank.pickWord(fresh, { categoryIds: ['random'], difficulty: 'mixed' })
+    if (!pick.decoy) continue
+    const sameCategory = fresh.categories
+      .find((c) => c.id === pick.categoryId)
+      .words.some((w) => w.word === pick.decoy)
+    assert.ok(sameCategory, `"${pick.decoy}" does not belong with "${pick.word}" (${pick.categoryName})`)
+  }
+})
+
+test('a word with its own hints draws one of them, at random', () => {
+  const custom = {
+    version: 1,
+    categories: [
+      {
+        id: 'house',
+        name: 'House Rules',
+        builtin: false,
+        words: [{ word: 'Kitchen sink', difficulty: 'medium', hints: ['Dish rack', 'Tap', 'Leftovers'] }],
+      },
+    ],
+  }
+  const seen = new Set()
+  for (let i = 0; i < 120; i += 1) {
+    const pick = bank.pickWord(custom, { categoryIds: ['house'], difficulty: 'medium' })
+    assert.equal(pick.word, 'Kitchen sink')
+    assert.ok(['Dish rack', 'Tap', 'Leftovers'].includes(pick.decoy), `unexpected decoy: ${pick.decoy}`)
+    seen.add(pick.decoy)
+  }
+  assert.equal(seen.size, 3, 'every hint eventually comes up')
+})
+
+test('hints are cleaned on the way in: no duplicates, no the word itself, capped', () => {
+  assert.deepEqual(bank.normalizeHints('Tap, tap , Dish rack', 'Kitchen sink'), ['Tap', 'Dish rack'])
+  assert.deepEqual(bank.normalizeHints(['Mug', 'kitchen sink'], 'Kitchen sink'), ['Mug'])
+  assert.deepEqual(bank.normalizeHints('', 'Word'), [])
+  assert.equal(bank.normalizeHints('a,b,c,d,e,f,g,h', 'Word').length, bank.MAX_HINTS)
+})
+
+test('a word keeps its hints through add, edit, storage and export', () => {
+  const session = bank.addCategory(bank.defaultBank(), 'House Rules')
+  const created = bank.addWord(session.bank, {
+    categoryId: 'house-rules',
+    word: 'Kitchen sink',
+    difficulty: 'medium',
+    hints: 'Tap, Dish rack',
+  })
+  const stored = created.bank.categories.find((c) => c.id === 'house-rules').words[0]
+  assert.deepEqual(stored.hints, ['Tap', 'Dish rack'])
+
+  /* Reclassifying a word must not silently wipe its hints. */
+  const reclassified = bank.updateWord(created.bank, {
+    categoryId: 'house-rules',
+    index: 0,
+    word: 'Kitchen sink',
+    difficulty: 'hard',
+  })
+  assert.deepEqual(reclassified.bank.categories.find((c) => c.id === 'house-rules').words[0].hints, ['Tap', 'Dish rack'])
+
+  const rewritten = bank.updateWord(created.bank, {
+    categoryId: 'house-rules',
+    index: 0,
+    word: 'Kitchen sink',
+    difficulty: 'medium',
+    hints: 'Washing up',
+  })
+  assert.deepEqual(rewritten.bank.categories.find((c) => c.id === 'house-rules').words[0].hints, ['Washing up'])
+
+  /* Export → import round trip, the path the admin backup button uses. */
+  const roundTripped = bank.importBank(bank.defaultBank(), JSON.parse(bank.exportBank(created.bank)))
+  assert.deepEqual(roundTripped.categories.find((c) => c.id === 'house-rules').words[0].hints, ['Tap', 'Dish rack'])
+})
+
 test('CRUD: add / update / delete words and categories', () => {
   let { bank: b } = bank.addCategory(bank.defaultBank(), 'House Rules')
   const created = bank.addCategory(b, 'House Rules')
@@ -605,22 +725,104 @@ test('vote progress tracks who has voted', () => {
   assert.equal(onlineGame.voteProgress(r).complete, true)
 })
 
-test('host tally equals the local engine verdict', () => {
+test('host tally equals the local engine verdict, guess and all', () => {
   const r = room()
   Object.assign(r.game.votes, { p1: 'p2', p2: 'p2', p3: 'p2', p4: 'p1' })
   const result = onlineGame.computeResult(r, { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' })
   assert.equal(result.eliminatedId, 'p2')
   assert.equal(result.wasImposter, true)
-  assert.equal(result.winner, 'crew')
+
+  // The local engine puts the room in the guess phase for exactly this case.
+  const local = (() => {
+    const players = ['p1', 'p2', 'p3', 'p4'].map((id, seat) => ({
+      id, name: id, seat, role: id === 'p2' ? 'imposter' : 'crew', alive: true, eliminatedRound: null, revealed: false,
+    }))
+    return { players, secret: { word: 'Umbrella' }, config: { winRule: 'lastStanding' }, history: [], round: 1 }
+  })()
+  assert.equal(onlineGame.resolveGuess({ guess: 'Umbrella', word: local.secret.word }).correct, true)
+  assert.equal(onlineGame.resolveGuess({ guess: 'Raincoat', word: local.secret.word }).correct, false)
+  assert.equal(onlineGame.resolveGuess({ guess: ' umbrella ', word: local.secret.word }).correct, true, 'forgiving compare')
 })
 
-test('tied online vote hands classic mode to the imposters', () => {
+test('a tied online vote removes nobody and settles nothing', () => {
   const r = room()
   Object.assign(r.game.votes, { p1: 'p2', p2: 'p3', p3: 'p2', p4: 'p3' })
   const result = onlineGame.computeResult(r, { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' })
   assert.equal(result.tie, true)
   assert.equal(result.eliminatedId, null)
+  assert.equal(result.winner, null, 'a split vote can never end the game')
+})
+
+test('a published vote result never carries a role', () => {
+  const r = room()
+  Object.assign(r.game.votes, { p1: 'p2', p3: 'p2', p4: 'p2' })
+  const roles = { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' }
+  const result = onlineGame.computeResult(r, roles)
+  /* The host needs the flag to open the guess screen... */
+  assert.equal(result.wasImposter, true, 'the host still learns whether to open a guess screen')
+  /* ...but the room document is shared with everybody, so it never travels. */
+  const published = onlineGame.publicResult(result)
+  assert.equal('wasImposter' in published, false, 'no role in the public result')
+  assert.equal(published.eliminatedId, 'p2')
+  assert.equal(published.needsGuess, true)
+  assert.equal(published.counts.p2, 3)
+})
+
+test('the guess screen view exposes no role, only who was accused', () => {
+  const r = room()
+  r.game.phase = 'guess'
+  r.game.pendingGuess = { playerId: 'p2', name: 'B' }
+  r.game.guess = null
+  r.game.lastResult = { round: 1, eliminatedId: 'p2', eliminatedName: 'B', counts: { p2: 2 }, tie: false, winner: null }
+  const mine = onlineGame.phaseView(r, 'p2')
+  assert.equal(mine.screen, 'guess')
+  assert.equal(mine.isMine, true, 'the accused gets the input')
+  assert.equal(mine.submitted, null)
+  assert.equal('roles' in mine, false, 'no roles on the guess screen')
+  const watcher = onlineGame.phaseView(r, 'p1')
+  assert.equal(watcher.isMine, false, 'everyone else can only watch')
+})
+
+test('a two-player online tie hands the game to the imposter', () => {
+  const r = room()
+  r.players = r.players.slice(0, 2)
+  r.game.votes = { p1: 'p2', p2: 'p1' }
+  const result = onlineGame.computeResult(r, { p1: 'crew', p2: 'imposter' })
+  assert.equal(result.tie, true)
+  assert.equal(result.stalemate, true)
+  assert.equal(result.eliminatedId, null)
+  assert.equal(result.winner, 'imposter', 'an unbreakable tie hands the game over')
+  assert.ok(result.reason.length > 0)
+})
+
+test('an online vote that removes an imposter offers the final guess', () => {
+  const r = room()
+  // Everyone points at p2, who is an imposter.
+  Object.assign(r.game.votes, { p1: 'p2', p3: 'p2', p4: 'p2' })
+  const result = onlineGame.computeResult(r, { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' })
+  assert.equal(result.eliminatedId, 'p2')
+  assert.equal(result.wasImposter, true)
+  assert.equal(result.winner, null, 'the guess decides, not the vote')
+  assert.equal(result.needsGuess, true)
+})
+
+test('an online vote that empties the crew ends the game', () => {
+  // Two players left: one crew, one imposter. Removing the crew member ends it.
+  const r = room({ players: room().players.slice(0, 2) })
+  r.game.votes = { p2: 'p1' }
+  const result = onlineGame.computeResult(r, { p1: 'crew', p2: 'imposter' })
+  assert.equal(result.eliminatedId, 'p1')
+  assert.equal(result.wasImposter, false)
   assert.equal(result.winner, 'imposter')
+  assert.match(result.reason, /last crew member is gone/i)
+})
+
+test('removing a crew member while crew remain just continues the game', () => {
+  const r = room()
+  Object.assign(r.game.votes, { p1: 'p3', p2: 'p3', p4: 'p3' })
+  const result = onlineGame.computeResult(r, { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' })
+  assert.equal(result.eliminatedId, 'p3')
+  assert.equal(result.winner, null, 'two crew members are still alive')
 })
 
 test('phase view routes each client to the right screen', () => {
@@ -719,8 +921,8 @@ test('chaos assigns imposter roles without a minority clamp', () => {
   // Every player must be able to draw the imposter card, so the count ranges
   // over 1..playerCount — including everyone.
   const seen = new Set()
-  for (let i = 0; i < 400; i += 1) seen.add(engine.rollChaosImposterCount(6))
-  assert.deepEqual([...seen].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6], `saw ${[...seen].join(',')}`)
+  for (let i = 0; i < 600; i += 1) seen.add(engine.rollChaosImposterCount(6))
+  assert.deepEqual([...seen].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6], `saw ${[...seen].join(',')}`)
 })
 
 test('chaos can deal an all-imposter table (a normal player is never forced)', () => {
@@ -742,9 +944,10 @@ test('chaos tiers describe one / several / many / everyone', () => {
 test('chaos draws every flavour across many rounds', () => {
   // Guards against a roll that silently collapses to one tier.
   const tiers = new Set()
-  for (let i = 0; i < 600; i += 1) tiers.add(engine.assignChaosRoles(9).tier)
-  assert.equal(tiers.size, 4, `only saw ${[...tiers].join(',')}`)
+  for (let i = 0; i < 900; i += 1) tiers.add(engine.assignChaosRoles(9).tier)
+  assert.equal(tiers.size, 5, `only saw ${[...tiers].join(',')}`)
   assert.ok(tiers.has('all'), 'all-imposter rounds must be reachable')
+  assert.ok(tiers.has('none'), 'nobody-is-an-imposter rounds must be reachable')
 })
 
 test('every seat has an equal chance of being the imposter', () => {
@@ -781,20 +984,21 @@ test('chaos re-rolls roles for a new round and never reuses the old ones', () =>
   let changed = 0
 
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const next = engine.nextRound(game)
-    assert.equal(next.round, 2)
-    if (next.players.map((p) => p.role).join('') !== before) changed += 1
-    counts.add(next.players.filter((p) => p.role === 'imposter').length)
+    const rolled = engine.rerollChaosRoles(game)
+    if (rolled.players.map((p) => p.role).join('') !== before) changed += 1
+    counts.add(rolled.players.filter((p) => p.role === 'imposter').length)
   }
 
   assert.ok(counts.size >= 2, `the imposter count never varied across 60 re-rolls: ${[...counts].join(',')}`)
   assert.ok(changed >= 1, 'a re-roll can change which players are imposters')
 })
 
-test('chaos re-roll resets the reveal so every player sees the new card', () => {
+test('a chaos round resets the reveal so every player sees the new card', () => {
   let game = engine.createGame(chaosConfig(), names(4), SECRET)
-  game = { ...game, players: game.players.map((p) => ({ ...p, revealed: true })) }
+  // Force the next round to be a chaos round, then hand everybody a seen card.
+  game = { ...game, nextChaosRound: 2, players: game.players.map((p) => ({ ...p, revealed: true })) }
   const next = engine.nextRound(game)
+  assert.equal(next.chaosRound, true, 'this round really is a chaos round')
   assert.ok(next.players.every((p) => p.revealed === false), 'cards must be un-seen for the new round')
 })
 
@@ -831,22 +1035,62 @@ test('an all-imposter round has no crew to win, so the deception takes it', () =
   assert.equal(engine.determineWinner(afterElimination).team, 'imposter')
 })
 
-test('chaos still follows the chosen win rule when a crew exists', () => {
-  // Chaos may legitimately deal an all-imposter round, so roll until a crew
-  // member exists — this test is about the win rule, not about the odds.
-  let game = null
-  for (let attempt = 0; attempt < 500 && !game; attempt += 1) {
-    const candidate = engine.createGame(chaosConfig({ imposterCount: 1 }), names(6), SECRET)
-    if (candidate.players.some((p) => p.role === 'crew')) game = candidate
-  }
-  assert.ok(game, 'a chaos roll containing a crew member is reachable')
-  game = engine.beginVoting(engine.startRound(game))
-  const imposter = game.players.find((p) => p.role === 'imposter')
-  game.players.filter((p) => p.id !== imposter.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, imposter.id)
-  })
-  game = engine.resolveRound(game)
-  assert.equal(game.winner.team, 'crew', 'classic rules apply inside chaos too')
+test('a chaos round with nobody imposter announces itself and plays on', () => {
+  let game = engine.createGame(chaosConfig(), names(5), SECRET)
+  // Deal the whole table a crew card, as a chaos round legitimately can.
+  game = { ...game, players: game.players.map((p) => ({ ...p, role: 'crew' })) }
+  const played = engine.beginVoting(game)
+
+  assert.equal(played.phase, 'result')
+  assert.equal(played.lastResult.noImposter, true)
+  assert.equal(played.winner, null, 'there is nothing to catch, so nothing is decided')
+  assert.match(engine.chaosNoImposterLine(), /NO IMPOSTER THIS ROUND/i)
+})
+
+test('a chaos round where everyone is an imposter is taken by the imposters', () => {
+  let game = engine.createGame(chaosConfig(), names(5), SECRET)
+  game = { ...game, players: game.players.map((p) => ({ ...p, role: 'imposter' })) }
+  const played = engine.beginVoting(game)
+  assert.equal(played.winner.team, 'imposter')
+  assert.match(played.winner.reason, /no crew to catch anyone/i)
+})
+
+test('a round that dealt nobody an imposter puts the imposters back afterwards', () => {
+  let game = engine.createGame(chaosConfig({ imposterCount: 2 }), names(6), SECRET)
+  game = { ...game, players: game.players.map((p) => ({ ...p, role: 'crew' })), nextChaosRound: 99 }
+  const next = engine.nextRound(game)
+  assert.equal(next.players.filter((p) => p.role === 'imposter').length, 2, 'the configured count is restored')
+})
+
+test('a chaos game opens with the ordinary deal, not a chaos roll', () => {
+  /*
+   * Chaos is an event, so round one uses the configured imposter count. Opening
+   * on a chaos roll could deal an all-imposter table and end the game before
+   * anybody had a turn.
+   */
+  const game = engine.createGame(chaosConfig({ imposterCount: 2 }), names(6), SECRET)
+  assert.equal(game.chaosRound, false)
+  assert.equal(game.players.filter((p) => p.role === 'imposter').length, 2, 'the configured count is dealt')
+  assert.ok(game.nextChaosRound >= engine.CHAOS_GAP_MIN && game.nextChaosRound <= engine.CHAOS_GAP_MAX, 'the first event lands 3-5 rounds in')
+})
+
+test('chaos is an event every few rounds, not every round', () => {
+  const game = engine.createGame(chaosConfig({ imposterCount: 1 }), names(6), SECRET)
+  assert.ok(game.nextChaosRound >= engine.CHAOS_GAP_MIN, `first chaos round at ${game.nextChaosRound}`)
+  assert.ok(game.nextChaosRound <= engine.CHAOS_GAP_MAX, 'first chaos round lands inside the window')
+  assert.equal(game.chaosRound, false, 'the opening round is a normal one')
+
+  // The rounds before it keep the base assignment: same roles, same word.
+  const roundTwo = engine.nextRound(game)
+  assert.equal(roundTwo.chaosRound, false, 'round two is an ordinary round')
+  assert.deepEqual(roundTwo.players.map((p) => p.role), game.players.map((p) => p.role))
+
+  // A due chaos round re-rolls and re-arms the clock 3-5 rounds later.
+  const due = { ...game, nextChaosRound: 2 }
+  const chaosRound = engine.nextRound(due)
+  assert.equal(chaosRound.chaosRound, true)
+  assert.ok(chaosRound.nextChaosRound >= chaosRound.round + engine.CHAOS_GAP_MIN)
+  assert.ok(chaosRound.nextChaosRound <= chaosRound.round + engine.CHAOS_GAP_MAX)
 })
 
 test('normal mode is byte-for-byte untouched by chaos', () => {
@@ -867,16 +1111,20 @@ test('the chaos roll uses crypto-backed randomness', () => {
 })
 
 test('chaos copy tells the truth about what it does', () => {
-  assert.match(engine.winConditionText('classic', 'chaos'), /re-rolls the imposters every round/i)
-  assert.match(engine.winConditionText('survival', 'chaos'), /every round/i)
+  assert.match(engine.winConditionText('lastStanding', 'chaos'), /every few rounds/i)
+  assert.match(engine.winConditionText('lastStanding', 'chaos'), /sometimes nobody, sometimes everyone/i)
   assert.equal(engine.isChaosMode({ mode: 'chaos' }), true)
   assert.equal(engine.isChaosMode({ mode: 'normal' }), false)
   assert.equal(engine.isChaosMode({}), false)
 })
 
-test('the briefing line announces chaos without leaking the roll', () => {
+test('the briefing line announces chaos rounds without leaking the roll', () => {
   const game = engine.createGame(chaosConfig(), names(6), SECRET)
-  const line = engine.briefLine(game)
+  // Ordinary rounds read normally; a chaos round announces itself and nothing more.
+  /* Anchored on the schedule the engine actually uses, so this never depends
+     on which gap the deal happened to roll. */
+  assert.ok(!/chaos/i.test(engine.briefLine({ ...game, nextChaosRound: 9, round: 1 })))
+  const line = engine.briefLine({ ...game, nextChaosRound: 4, round: 4 })
   assert.match(line, /chaos/i)
   assert.ok(!/\d+ imposters?/i.test(line), `the line must not reveal the count: "${line}"`)
 })
@@ -1124,6 +1372,27 @@ test('the stored digest matches the salted passphrase', () => {
     assert.ok(!patchLines.some((line) => line.includes('word')), 'no word ever lands in a public room patch')
   })
 
+  test('no published result in the room document can carry a role', () => {
+    const publishResult = bodyOf('publishResult')
+    const publishGuess = bodyOf('publishGuess')
+    const published = publishResult.match(/lastResult: [^,\n]+/g) || []
+    assert.ok(published.length >= 2, 'both result paths publish a lastResult')
+    published.forEach((line) => {
+      assert.ok(line.includes('publicResult('), `role-free publish expected, got: ${line.trim()}`)
+    })
+    assert.ok(
+      !/lastResult: result\b/.test(publishResult),
+      'the raw result (with wasImposter) must never be published as-is',
+    )
+    assert.ok(publishGuess.includes('revealedRoles: gameOver'), 'roles only appear once the guess ends the game')
+  })
+
+  test('the mid-game tally never reads a role out of the vote result', () => {
+    const phases = readFileSync(new URL('../src/components/online/OnlineGamePhases.jsx', import.meta.url), 'utf8')
+    assert.ok(!phases.includes('result.wasImposter'), 'the mid-game tally reads only revealedRoles')
+    assert.ok(phases.includes('(room.game.revealedRoles || {})[id] === ROLES.IMPOSTER'), 'roles come from revealedRoles')
+  })
+
   test('the re-roll reads the reserved entry only, never the whole private map', () => {
     assert.ok(nextRound.includes('playerId: SECRET_META_KEY'), 'addresses the reserved entry')
     assert.ok(!nextRound.includes('fetchSecret({ code })' ), 'never reads every player secret')
@@ -1165,10 +1434,27 @@ test('the stored digest matches the salted passphrase', () => {
   })
 
   test('chaos never disturbs the normal online round path', () => {
-    assert.ok(nextRound.includes("room.config?.mode === 'chaos' && aliveIds.length"), 're-roll is gated on the mode')
+    assert.ok(nextRound.includes('(chaosNow || restoresBase) && aliveIds.length'), 'the rewrite is gated on a scheduled chaos round')
     // The plain path is still the tail of the function, reachable in classic mode.
-    assert.ok(nextRound.indexOf('patchRoom(') > nextRound.indexOf("mode === 'chaos'"), 'classic mode falls through to the unchanged patch path')
-    assert.ok(source.includes('mode === \'chaos\'') || source.includes("mode === 'chaos'"), 'mode is compared as a string literal')
+    assert.ok(
+      nextRound.indexOf('patchRoom(') > nextRound.indexOf('(chaosNow || restoresBase)'),
+      'an ordinary round falls through to the unchanged patch path',
+    )
+  })
+
+  test('the online host keeps the same chaos cadence as pass & play', () => {
+    /* Chaos is an event every 3-5 rounds online too — it used to re-roll every
+       single round, which is exactly what the rules forbid. */
+    const startGame = bodyOf('startGame')
+    const playAgain = bodyOf('playAgain')
+    assert.ok(nextRound.includes('const chaosNow = isChaosRound({ config: room.config, nextChaosRound: room.game.nextChaosRound }, round)'), 'the cadence comes from the engine, not from the mode alone')
+    assert.ok(nextRound.includes('nextChaosRound: chaosNow ? scheduleNextChaosRound(round) : room.game.nextChaosRound'), 'a chaos round re-arms the clock 3-5 rounds later')
+    for (const [label, body] of [['startGame', startGame], ['playAgain', playAgain]]) {
+      assert.ok(body.includes('nextChaosRound: isChaosMode(room.config) ? scheduleNextChaosRound(1) : null'), `${label} schedules the first chaos round`)
+      assert.ok(body.includes('chaosRound: false'), `${label} opens on an ordinary round`)
+    }
+    assert.ok(nextRound.includes('noImposterRound: dealtNobody'), 'a chaos round that deals nobody the card says so')
+    assert.ok(nextRound.includes("assignRolesFor({ ...room.config, mode: 'normal' }, aliveIds.length)"), 'the configured count comes back afterwards')
   })
 }
 

@@ -49,8 +49,11 @@ Both support the same two assignment styles:
 - **Cinematic splash** with glow, blur, glitch and a neon sweep (≈1.6 s), then a smooth hand-off to the menu.
 - **Cyberpunk × synthwave HUD**: deep violet `#0B001A`, neon cyan/purple/magenta, glassmorphism, clipped corners, grain, animated particle field that reacts to pointer and device tilt.
 - **3D secret cards** with real perspective, pointer-tracked glare, shimmer sweep, and a hard rule: the card is only readable while it is flipped.
-- **Configurable rounds**: 2–20 players, 1–9 imposters (strict minority in Normal Mode, or **Chaos Mode**
-  where each round re-rolls who the imposters are — any number, up to and including everyone), 15/30/45/60/90 s turns, category + difficulty selection, secret ballots or a single open accusation, and two win rules (*Classic* / *Manhunt*).
+- **Endless rounds, one way to win**: 2–20 players, 1–9 imposters (strict minority in Normal Mode, or
+  **Chaos Mode**, where one round in every 3–5 re-rolls who the imposters are — any number, up to and
+  including everyone), 15/30/45/60/90 s turns, category + difficulty selection, and secret ballots or a
+  single open accusation. The game runs until one side has nobody left, and a caught imposter always
+  gets one guess at the crew's word first.
 - **Circular countdown ring** with escalating states — warning at 10 s, critical pulse at 5 s, time-up flare at 0.
 - **Dramatic reveals**: vote tallies animate bar by bar, the accused player's role lands with a burst, winners get confetti or a glitch-shake takeover.
 - **Online rooms** with 4-character codes from an unambiguous alphabet (`A7KQ`-style), live lobby, ready states, host controls, host migration, reconnection, refresh-safe seats and a synced shared timer.
@@ -93,9 +96,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 98 rule/utility tests (roles + chaos rolls, win conditions incl. multi-imposter Classic, validation, word bank, online tally math, secret-plumbing invariants, error copy, backend config + URL recovery) |
+| `npm run test:engine` | 115 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 102-check UI smoke test: mounts the app in jsdom, **plays a full round and a full chaos round end to end**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run test:ui` | 106-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -175,26 +178,38 @@ contains game logic, and the same rules drive local *and* online play.
    handing it to the imposter. The timer keeps the table honest (and can be paused or reset).
 3. **Debate, then vote.** Secret ballots are cast one device at a time and stay hidden until the
    tally; open accusation mode locks a single call for the whole table.
-4. **Resolve the round.**
+4. **One player leaves, and the game keeps going.** There is one win rule: the game ends when a
+   side has **nobody left**.
 
-| Win rule | Crew wins when | Imposters win when |
-| --- | --- | --- |
-| **Classic** (one vote decides) | The vote lands on **any** imposter — with several in play, catching one is enough, exactly as the rules promise | The vote lands on a crew member, **or** the vote ties (nobody is accused) |
-| **Manhunt** (multi-round) | Every imposter has been removed | Imposters equal the remaining crew, or they survive all rounds |
+| The vote lands on | What happens |
+| --- | --- |
+| An imposter | They get **one private guess** at the crew's word. Naming it hands the game to the imposters; missing it just removes them. |
+| A crew member | They are simply gone — the round ends and play continues. |
+| A tie | Nobody leaves; the round starts again. (With only two players left the tie can never be broken, so the imposter takes it.) |
 
-The end screen always states the true reason: which imposter was caught (and how many of the total),
-whether a crew member was wrongly accused, or that a split vote saved nobody. The sub-headline
-adapts too — `1 OF 3 IMPOSTERS CAUGHT` rather than a claim that everyone was caught.
+* **Crew win** by removing the last imposter — including the one who just failed their guess.
+* **Imposters win** by outlasting the crew, or by naming the word after being caught.
+* There is **no round limit** and no single-vote finish.
+
+**No role is ever announced mid-game.** The screen after a vote shows the tally and who left, never
+whether they were crew or imposter. Roles are revealed once, on the winner screen, when the game is
+over. The public room document never carries a role either — online, `revealedRoles` is written only
+as the game ends, and the host's private `wasImposter` flag is stripped before anything is published
+(see `publicResult()`).
 
 Imposters are always a strict minority: with *n* players you can have at most `floor((n-1)/2)`.
 Role assignment uses `crypto.getRandomValues()` with rejection sampling and a Fisher–Yates
 shuffle, never plain `Math.random()` alone.
 
-**Chaos Mode is the deliberate exception.** It never forces a normal player to exist: each round rolls
-a fresh assignment, weighted so that a single imposter and an all-imposter round are both real
-possibilities, with every seat equally likely to land on either side. Roles are revealed through the
-same private card system, so the table still learns nothing before the reveal. When *every* player is
-an imposter there is no crew to catch anyone, and the verdict says exactly that.
+**Chaos Mode is an event, not a state.** A chaos game opens with the ordinary deal and then fires one
+chaos round every **3–5 rounds** (`CHAOS_GAP_MIN`/`CHAOS_GAP_MAX`), carrying on with the base
+assignment in between. A chaos round re-rolls roles for everyone still in play and can deal **one**
+imposter, **several**, **many**, **nobody at all**, or **the whole table** — no normal player is ever
+forced to exist, and all-imposter is a real outcome. A round that deals nobody the card has nothing to
+catch, so the table is told and the round moves on; the next ordinary round hands the configured count
+back so the game can still be won. When *every* player is an imposter there is no crew left to catch
+anyone, and the verdict says exactly that. Online rooms keep the same cadence — the host re-rolls on
+the scheduled chaos rounds only.
 
 **Haptics never betray a role.** The vibration cue for revealing a card is byte-for-byte identical
 whether you are crew or imposter, and cues are short — a phone on a table should feel the game, not
@@ -387,6 +402,13 @@ Everything lives in **BLACK BOX → WORD DATABASE**:
 New words are stored on this device and are immediately playable. The Settings screen repeats these
 steps under *CUSTOM WORDS & CATEGORIES*, so you never have to remember them.
 
+**Cover words (hints).** Every word can carry up to **six** cover words — the words the imposter is
+offered as a bluff. Type them into the *cover words* field beside a word (comma separated); if a word
+has several, the game draws **one at random** each time it is dealt, so the same word bluffs
+differently on every replay. Leave the field empty and the imposter is offered another word **from the
+same category** instead, which keeps the bluff in the same world as the real word. Hints travel with
+the JSON export/import and with cloud word sync, so a shared database keeps them.
+
 ### Rotating the access phrase
 
 The passphrase is never stored in the source — only a salted SHA-256 digest is:
@@ -538,7 +560,7 @@ Run `supabase/schema.sql` once in the project and online rooms are live.
 | “That is the service-role key” | Working as intended — use the anon / publishable key. The service-role key must never be in a browser. |
 | Pasted the Supabase **dashboard** URL by mistake | No longer a problem: `supabase.com/dashboard/project/<ref>` is converted automatically to `https://<ref>.supabase.co`. A dashboard link without a project reference is refused with instructions. |
 | A tall panel can't be scrolled on a phone | Fixed: the page behind a dialog is scroll-locked, so dialogs now cap themselves to the viewport and scroll internally. |
-| The crew caught an imposter but the imposters still won | Fixed in Classic mode. Catching any imposter wins the round; only a wrong accusation or a tied vote hands it over. Manhunt still requires removing every imposter. |
+| The crew caught an imposter but the imposters still won | Expected: a caught imposter gets one guess at the word, and naming it hands them the game. Vote out every imposter (or let them miss) and the crew takes it. |
 | “The room database is not set up yet” | Run `supabase/schema.sql` in the SQL editor. |
 | Lobby never updates on other devices | Enable Realtime and make sure `imposter_rooms` is in the `supabase_realtime` publication. |
 | “That code contains a character we never use” | Room codes exclude `O I L 0 1 S Z 2 5` to avoid misreads — check the code again. |

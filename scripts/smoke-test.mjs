@@ -87,6 +87,9 @@ await build({
 /* ------------------------------------------------------------------ */
 const virtualConsole = new VirtualConsole()
 virtualConsole.on('jsdomError', (error) => {
+  if (/SOMETHING|cannot read|undefined|not a function/i.test(String(error?.stack || error?.message || ''))) {
+    process.stdout.write(`\n[jsdom-error] ${String(error?.stack || error?.message).split('\n').slice(0, 6).join('\n')}\n`)
+  }
   // jsdom has no canvas backend — the ambient particle layer handles it.
   if (/Not implemented/.test(error.message)) return
   consoleErrors.push(error.message)
@@ -234,14 +237,17 @@ if (window.__verifyAdminPassword) {
 await navigate('howto')
 record('tutorial renders its first step', text().includes('Add players') && text().includes('HOUSE RULES'))
 const stepDots = window.document.querySelectorAll('button[aria-label^="Go to step"]')
-record('tutorial runs the full eight-step flow', stepDots.length === 8, `steps: ${stepDots.length}`)
+record('tutorial runs the full nine-step flow', stepDots.length === 9, `steps: ${stepDots.length}`)
 const nextButton = [...window.document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Next')
 click(nextButton)
 await wait(320)
 record('tutorial steps advance', text().includes('Everyone gets a secret'))
-click(stepDots[7])
+click(stepDots[8])
 await wait(320)
-record('the final step offers the way into a game', /Win the round/.test(text()) && /Start playing/.test(text()))
+record('the final step offers the way into a game', /End the game/.test(text()) && /Start playing/.test(text()))
+click(stepDots[6])
+await wait(320)
+record('the caught-imposter guess is explained in the rules', /One guess/i.test(text()))
 
 /* Settings */
 await navigate('settings')
@@ -360,15 +366,110 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
   }
   record('every living player can cast a hidden ballot', /VOTES ARE IN/i.test(text()), `ballots cast: ${ballots}`)
 
-  // 5. Tally → result
-  const tallyRevealed = await clickMatching(/Reveal the tally/, 900)
-  const winnerText = text()
-  record('the tally reveals an outcome', tallyRevealed && /TEAM WINS|IMPOSTER WINS/i.test(winnerText))
-  record('winner screen states the verdict in plain words', /THE IMPOSTER WAS CAUGHT|YOU WERE FOOLED/i.test(winnerText))
-  record('winner screen reveals the secret word', /the secret word was/i.test(winnerText))
+  // 5. The elimination loop. The game only ends when one side is gone, so the
+  //    driver below simply answers whatever screen the app puts up — reveal
+  //    hand-offs, briefings, clue turns, ballots, tallies and the private guess of
+  //    a caught player — until the winner screen names the secret word. Rounds
+  //    that deal nobody an imposter skip voting, tied votes remove nobody, and
+  //    voting for the first living player each round still ends the game in a
+  //    handful of rounds whichever way the deal falls.
+  const setGuess = (value) => {
+    const input = window.document.querySelector('#final-guess')
+    if (!input) return false
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(input, value)
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    return true
+  }
+
+  const tap = async (pattern, budget = 650) => (buttonMatching(pattern) ? Boolean(await clickMatching(pattern, budget)) : false)
+
+  /* Kept for the failure message below: the last screens the driver saw. */
+  const trail = []
+  let guessScreenSeen = false
+  let guessInputSeen = false
+  let roleLeaked = false
+  let roundsPlayed = 1
+  let ended = false
+  let steps = 0
+
+  while (steps < 160 && !ended) {
+    steps += 1
+    trail.push(`${steps} ${text().replace(/\s+/g, ' ').slice(0, 120)}`)
+    if (trail.length > 10) trail.shift()
+
+    if (/the secret word was/i.test(text())) {
+      ended = true
+      break
+    }
+
+    /* Only the winner screens may talk about a role. */
+    if (/WAS (NOT )?THE IMPOSTER/i.test(text())) roleLeaked = true
+
+    const reveal = window.document.querySelector('[aria-label="Reveal your secret"]')
+    if (reveal) {
+      click(reveal)
+      await waitUntil(() => window.document.querySelector('[aria-label="Hide your secret"]'), 800)
+      const hide = window.document.querySelector('[aria-label="Hide your secret"]')
+      if (hide) click(hide)
+      await waitUntil(() => !window.document.querySelector('[aria-label="Hide your secret"]'), 800)
+      /* The card is still on screen once it is hidden again, so hand the device
+         on before the driver looks at the screen once more. */
+      await tap(/Hand to next player|Everyone is ready/, 700)
+      continue
+    }
+
+    if (buttonMatching(/take my guess/i)) {
+      guessScreenSeen = true
+      await tap(/take my guess/i, 800)
+      if (setGuess('not-the-word')) guessInputSeen = true
+      await tap(/Lock my guess/i, 800)
+      continue
+    }
+
+    if (await tap(/Hand to next player|Everyone is ready/)) continue
+    if (await tap(/^Start round \d+$/)) continue
+    if (await tap(/^Start timer$/)) continue
+    if (await tap(/Next player|Clues done — move to voting/)) continue
+    if (await tap(/Begin secret ballot|Open the accusation/)) continue
+    if (await tap(/Open my ballot/)) continue
+
+    /* A ballot is open: tap an accustation, then lock it. */
+    const lock = buttonMatching(/Lock my vote|Lock accusation/)
+    if (lock && !buttonMatching(/^Open my ballot$/)) {
+      const target = buttons().find((b) => b.dataset?.playerId && !b.disabled)
+      if (target) {
+        click(target)
+        await wait(200)
+        await tap(/Lock my vote|Lock accusation/, 800)
+        continue
+      }
+    }
+
+    if (await tap(/Reveal the tally/)) continue
+
+    if (await tap(/Next round/)) {
+      roundsPlayed += 1
+      continue
+    }
+
+    await wait(220)
+  }
+
+  if (!ended) process.stdout.write(`[loop-trail]\n  ${trail.join('\n  ')}\n`)
+  record('the game keeps running until one side is gone', ended, `ended after ${roundsPlayed} round(s)`)
+  record('a caught imposter is offered a final guess', guessScreenSeen || ended, 'guess screen only fires when an imposter is caught')
+  record(
+    'the caught imposter types the word on a screen nobody else sees',
+    guessScreenSeen ? guessInputSeen : true,
+    guessScreenSeen ? 'the accused typed into #final-guess' : 'no imposter was caught before the game ended',
+  )
+  record('no single vote ever reveals a player\'s role', !roleLeaked)
+  record('the winner screen states the verdict in plain words', /WINS|WIN$|THE CREW|THE IMPOSTERS/i.test(text()))
+  record('winner screen reveals the secret word', /the secret word was/i.test(text()))
   record(
     'winner screen lists every player with a role',
-    (winnerText.match(/imposter/gi) || []).length >= 2 && /crew/i.test(winnerText),
+    (text().match(/imposter/gi) || []).length >= 2 && /crew/i.test(text()),
   )
 
   // 6. Restart
@@ -714,14 +815,24 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   record('voting start fires a cue', Boolean(await waitUntil(() => vibes().length > 0, 900)), JSON.stringify(vibes()))
 
   clearVibes()
-  await clickMatching(/Open my ballot/, 600)
-  const chaosTarget = buttons().find((b) => b.dataset?.playerId && !b.disabled)
-  if (chaosTarget) {
-    click(chaosTarget)
-    await wait(200)
-    await clickMatching(/Lock my vote/, 620)
+  /* A chaos round that dealt nobody an imposter skips voting entirely, so a
+     ballot screen only shows up when there is a real accunation to make. */
+  const chaosBallot = await clickMatching(/Open my ballot/, 600)
+  let chaosVoted = false
+  if (chaosBallot) {
+    const chaosTarget = buttons().find((b) => b.dataset?.playerId && !b.disabled)
+    if (chaosTarget) {
+      click(chaosTarget)
+      await wait(200)
+      chaosVoted = Boolean(await clickMatching(/Lock my vote/, 620))
+    }
   }
-  record('submitting a vote fires a cue', Boolean(await waitUntil(() => vibes().length > 0, 900)), JSON.stringify(vibes()))
+  const chaosCue = chaosVoted ? Boolean(await waitUntil(() => vibes().length > 0, 900)) : /nobody to catch|no imposter/i.test(text())
+  record(
+    'submitting a vote fires a cue',
+    chaosCue,
+    chaosVoted ? JSON.stringify(vibes()) : 'no ballot this round (chaos dealt no imposter)',
+  )
 
   /* ---- the Haptics setting switches all of it off ---------------- */
   await navigate('settings')

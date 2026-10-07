@@ -8,7 +8,7 @@ export const BRAND = {
   game: 'IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.5',
+  version: '1.0.6',
 }
 
 export const LIMITS = {
@@ -33,19 +33,20 @@ export const DIFFICULTIES = [
   { id: 'mixed', label: 'Mixed', notes: 'Anything goes', weight: 0 },
 ]
 
+/**
+ * There is one way to win now: outlast the other side.
+ *
+ * Crew win when the last imposter is removed; imposters win when the last crew
+ * member is removed — or when a caught imposter names the secret word on their
+ * one final guess. A split vote removes nobody and simply moves the game on.
+ */
 export const WIN_RULES = [
   {
-    id: 'classic',
-    label: 'Classic',
-    short: 'One vote decides',
-    description: 'Catch an imposter and the crew wins instantly — even when several are hiding. Accuse a crew member instead and the imposters take it.',
-  },
-  {
-    id: 'survival',
-    label: 'Manhunt',
-    short: 'Survive the rounds',
+    id: 'lastStanding',
+    label: 'Last team standing',
+    short: 'Nobody outvotes an empty bench',
     description:
-      'Wrong accusations eliminate a crew member and play continues. Crew wins by removing every imposter; imposters win once they match the crew.',
+      'Vote out an imposter and they get one guess at the crew\'s word — name it and the imposters take everything. Otherwise play continues until one side has nobody left. A split vote removes nobody.',
   },
 ]
 
@@ -100,6 +101,7 @@ export const GAME_PHASES = {
   VOTE_HANDOFF: 'vote_handoff',
   VOTE_CAST: 'vote_cast',
   TALLY: 'tally',
+  GUESS: 'guess',
   RESULT: 'result',
   GAME_OVER: 'game_over',
 }
@@ -123,6 +125,7 @@ export const ONLINE_PHASES = {
   CLUES: 'clues',
   VOTING: 'voting',
   TALLY: 'tally',
+  GUESS: 'guess',
   RESULT: 'result',
 }
 

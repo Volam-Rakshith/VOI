@@ -28,8 +28,8 @@ Optional but recommended before committing:
 
 ```bash
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
-npm run test:engine   # 98 rule/utility tests  → expect "98 passed, 0 failed"
-npm run test:ui       # 102 UI checks (full round + chaos round + haptics + failsafe + backend + scrolling)
+npm run test:engine   # 115 rule/utility tests → expect "115 passed, 0 failed"
+npm run test:ui       # 106 UI checks (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
 npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
 ```
 
@@ -60,29 +60,49 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 - [ ] Tap again → hides; **"Hand to next player"** appears only after hiding
 - [ ] Repeat for all players; the last one says "Everyone is ready"
 - [ ] Briefing shows round, objective, win condition, then "Start round 1"
+- [ ] The secret card looks **identical** whichever role you hold — same cyan/indigo treatment, no
+      colour tell while the device is handed around
+- [ ] A long custom word ("kitchen sink", or a full 28-character word) fits inside the card without
+      spilling off the edge; the type steps down and wraps
 - [ ] Clue screen: timer Start / Pause / Resume / Reset all work
 - [ ] At 10 s the ring turns amber; at 5 s it pulses magenta; at 0 it flares and stops
 - [ ] Clue order is random each round but every living player gets exactly one turn
 - [ ] Last clue → "Clues done — move to voting" → voting intro
 - [ ] Secret ballot: each voter gets a hand-off, no vote is visible before the tally
 - [ ] Cannot vote for yourself; each voter can only vote once
-- [ ] Reveal the tally → bars animate, eliminated player + role shown
-- [ ] Catch the imposter → TEAM WINS + confetti; wrong player → IMPOSTER WINS + glitch/shake
-- [ ] Tie vote in Classic → "nobody accused" and imposters win
-- [ ] Classic with several imposters: catching **one** imposter wins the round for the crew
-- [ ] Classic: wrong accusation ends it with "a crew member was accused…"; a tie says the vote was split
-- [ ] The verdict line reflects reality (`1 OF 3 IMPOSTERS CAUGHT`, not "the imposter was caught")
-- [ ] Manhunt rule: wrong accusation continues to round 2 with one fewer player
+- [ ] Reveal the tally → bars animate, the eliminated player's name shows — and **no role is stated**
+      for them, ever, at this point
+- [ ] Vote out a crew member → the round ends with "the hunt continues" and **Next round** keeps the
+      game going with one fewer player
+- [ ] Vote out an imposter → the guess hand-off appears; the accused types the word on a screen nobody
+      else sees. Right guess → imposters win outright. Wrong guess → they are out and play continues
+- [ ] Catch the **last** imposter and they miss → THE CREW WINS on the spot
+- [ ] Keep voting crew out until the crew is gone → THE IMPOSTERS WIN, with no false reason line
+- [ ] A split vote removes nobody: "the vote was split — nobody leaves", and the next round starts with
+      the same roster
+- [ ] A split vote with exactly two players left resolves (each can only vote for the other) instead of
+      looping forever
+- [ ] Roles are revealed **only** on the winner screen, listed for every player
+- [ ] There is no round limit anywhere in Setup — only the "how the game ends" statement, which matches
+      what actually happens
 - [ ] Play again re-rolls roles and the word; word never repeats back-to-back
 - [ ] Quit mid-game asks for confirmation and returns to the menu
 
 ## 2b. Chaos Mode (anyone can be an imposter)
 
-- [ ] On **PLAY LOCAL**, Setup → Game Mode shows both cards; picking **Chaos** explains that roles
-      are re-rolled every round and greys out the fixed imposter count
-- [ ] Start a 4+ player chaos game: reveals, clues, voting and results all behave exactly as in Normal Mode
-- [ ] Play several chaos rounds — you should see different role mixes, including rounds with more than
-      one imposter (an all-imposter round is rare but real: roughly 1 in 7 for six players)
+- [ ] On **PLAY LOCAL**, Setup → Game Mode shows both cards; picking **Chaos** explains that a round
+      every few rounds is re-rolled and greys out the fixed imposter count
+- [ ] Start a 4+ player chaos game: **round one is an ordinary round** with the configured imposter
+      count, and reveals, clues, voting and results behave exactly as in Normal Mode
+- [ ] A chaos round lands **3–5 rounds in** (not every round) and announces itself on the briefing
+      screen; the rounds in between keep the same assignment
+- [ ] Across enough runs you see the different flavours: one imposter, several, many, nobody, and the
+      whole table
+- [ ] A **nobody-is-an-imposter** chaos round says so on the tally screen (there is nothing to vote on),
+      and the next ordinary round puts the configured imposter count back
+- [ ] An **all-imposter** round resolves with the imposters taking it, and the verdict says exactly that
+- [ ] Online rooms keep the same cadence: the host re-rolls on the scheduled chaos rounds only, not
+      every round
 - [ ] Every player gets a turn as imposter across enough rounds; nobody is permanently crew
 - [ ] **Play again** re-rolls: the same player is not stuck with the same role as the last game
 - [ ] In an all-imposter round nobody is falsely accused — the verdict states that every player was an
@@ -224,7 +244,7 @@ These are the areas I could not fully verify in this sandbox. If any misbehave, 
 Paste this shape and I'll turn it into fixes:
 
 ```
-1) What I did:      (e.g. "iPhone 13, Safari, 5 players, Manhunt, voted for the wrong player in round 2")
+1) What I did:      (e.g. "iPhone 13, Safari, 5 players, chaos mode, voted out an imposter in round 3 and lost the guess")
 2) What I expected: (e.g. "round 3 starts with 4 living players")
 3) What happened:   (e.g. "round counter jumped to 3 but the eliminated player still got a clue turn")
 4) Console:         (any red text — even one line)

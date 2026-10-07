@@ -13,16 +13,7 @@ import { useLocalGame } from '../hooks/useLocalGame.js'
 import { haptic } from '../lib/haptics.js'
 import { briefLine } from '../lib/gameEngine.js'
 import { SetupScreen } from '../components/game/SetupScreen.jsx'
-import {
-  BriefingPhase,
-  CluesPhase,
-  HandoffPhase,
-  ResultPhase,
-  TallyPhase,
-  VoteCastPhase,
-  VoteHandoffPhase,
-  VoteIntroPhase,
-} from '../components/game/LocalPhases.jsx'
+import { BriefingPhase, CluesPhase, HandoffPhase, ResultPhase, TallyPhase, VoteCastPhase, VoteHandoffPhase, GuessPhase, VoteIntroPhase } from '../components/game/LocalPhases.jsx'
 import { ScreenHeader, ScreenShell } from '../components/ui/Layout.jsx'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog.jsx'
 import { useToast } from '../context/ToastContext.jsx'
@@ -83,6 +74,9 @@ export function LocalGame({ onNavigate }) {
       case GAME_PHASES.TALLY:
         haptic('votingEnded', vibrate)
         break
+      case GAME_PHASES.GUESS:
+        haptic('eliminated', vibrate)
+        break
       case GAME_PHASES.RESULT: {
         const allImposters = state.chaos && !state.players.some((p) => p.role === 'crew')
         if (allImposters) haptic('chaosAll', vibrate)
@@ -142,6 +136,8 @@ export function LocalGame({ onNavigate }) {
         return <VoteCastPhase key="vote-cast" state={state} view={view} actions={actions} open={state.config.voteMode === 'open'} />
       case GAME_PHASES.TALLY:
         return <TallyPhase key="tally" state={state} view={view} actions={actions} />
+      case GAME_PHASES.GUESS:
+        return <GuessPhase key={`guess-${state.round}`} state={state} view={view} actions={actions} />
       case GAME_PHASES.RESULT:
         return <ResultPhase key={`result-${state.round}`} state={state} view={view} actions={actions} onExit={exitNow} />
       default:

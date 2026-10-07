@@ -24,6 +24,69 @@ import { roomAlive } from '../../lib/onlineGame.js'
 
 /* ------------------------------------------------------------------ */
 
+/**
+ * The caught imposter's one guess. Only that player's device shows the input —
+ * everyone else watches a waiting screen that says nothing about their role.
+ */
+function GuessPanel({ pending, waiting, submitted, onGuess }) {
+  const [text, setText] = useState('')
+  const [sent, setSent] = useState(false)
+  const { vibrate } = useSettings()
+
+  if (waiting) {
+    return (
+      <Panel className="px-4 py-5 text-center">
+        <p className="label mb-2 text-[9px]">final guess</p>
+        <p className="font-display text-[clamp(18px,6vw,24px)] tracking-[.1em] text-white text-neon">
+          {pending?.name || 'The accused'}
+        </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-violet-200/70">
+          {submitted
+            ? 'Guess locked. Waiting for the verdict…'
+            : 'Is naming the crew\'s word on their own device. Hold tight.'}
+        </p>
+      </Panel>
+    )
+  }
+
+  const submit = () => {
+    const value = text.trim()
+    if (!value || sent) return
+    haptic('voteSubmitted', vibrate)
+    setSent(true)
+    onGuess(value)
+  }
+
+  return (
+    <Panel className="px-4 py-5">
+      <p className="label mb-2 text-[9px]">one guess — nobody else should see this</p>
+      <h2 className="text-center font-display text-[clamp(19px,6.5vw,26px)] tracking-[.12em] text-white text-neon">
+        WHAT WAS THE WORD?
+      </h2>
+      <p className="mt-2 text-center text-[12.5px] leading-relaxed text-violet-200/65">
+        Name it right and the imposters take the whole game.
+      </p>
+      <input
+        id="online-final-guess"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') submit()
+        }}
+        autoComplete="off"
+        autoCapitalize="none"
+        spellCheck="false"
+        maxLength={40}
+        placeholder="Type the word…"
+        className="mt-4 w-full rounded-hud border border-violet-400/35 bg-violet-950/50 px-3.5 py-3 text-center font-display text-[16px] tracking-[.12em] text-white placeholder:text-violet-300/30 focus:border-cyan-300/70 focus:outline-none"
+      />
+      <Button className="mt-3" variant="primary" size="lg" fullWidth disabled={!text.trim() || sent} onClick={submit}>
+        {sent ? 'Guess locked…' : 'Lock my guess'}
+      </Button>
+    </Panel>
+  )
+}
+
 export function OnlineGamePhases({ online, onExit }) {
   const { room, view, session, actions, connection, busy, timerRemaining } = online
   const { settings, vibrate } = useSettings()
@@ -394,6 +457,31 @@ export function OnlineGamePhases({ online, onExit }) {
     )
   }
 
+  /* ---------------- the caught imposter's final guess ---------------- */
+  if (view?.screen === 'guess') {
+    const pending = view.pending || {}
+    const waiting = !view.isMine
+    return (
+      <>
+        {header('final guess', <Badge tone="magenta">one guess</Badge>)}
+        <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
+          <ConnectionBanner connection={connection} onRetry={actions.refresh} />
+          <GuessPanel
+            pending={pending}
+            waiting={waiting}
+            submitted={view.submitted}
+            onGuess={(text) => online.submitGuess(text)}
+          />
+          <div className="mt-auto">
+            <Button variant="quiet" size="sm" fullWidth onClick={() => setConfirm(isHost ? 'close' : 'leave')}>
+              {isHost ? 'Close room' : 'Leave room'}
+            </Button>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   /* ---------------- result (mid-game) ---------------- */
   if (view?.screen === 'result') {
     const result = room.game.lastResult
@@ -401,7 +489,8 @@ export function OnlineGamePhases({ online, onExit }) {
       id,
       name: room.players.find((p) => p.id === id)?.name || 'Unknown',
       count,
-      wasImposter: (room.game.revealedRoles || {})[id] === ROLES.IMPOSTER || (result?.eliminatedId === id ? result.wasImposter : false),
+      /* Roles appear in the tally only when the game is over (revealedRoles). */
+      wasImposter: (room.game.revealedRoles || {})[id] === ROLES.IMPOSTER,
     }))
     const max = Math.max(1, ...Object.values(result?.counts || { 0: 1 }))
 
@@ -421,8 +510,13 @@ export function OnlineGamePhases({ online, onExit }) {
             >
               {result?.eliminatedName || 'Nobody'}
             </motion.h2>
+            {/* Nobody learns a role from a single vote — not even the table. */}
             <p className="mt-2 font-display text-[12.5px] tracking-[.18em] text-magenta-glow">
-              {result?.tie ? 'THE VOTE WAS SPLIT' : result?.wasImposter ? 'WAS AN IMPOSTER' : 'WAS NOT THE IMPOSTER'}
+              {result?.noImposter
+                ? 'EVERY PLAYER WAS CREW THIS ROUND'
+                : result?.tie
+                  ? 'THE VOTE WAS SPLIT — NOBODY LEAVES'
+                  : 'OUT OF THE GAME — THE HUNT CONTINUES'}
             </p>
           </div>
 
@@ -437,12 +531,14 @@ export function OnlineGamePhases({ online, onExit }) {
             <StatBlock label="imposters left" value="?" tone="magenta" />
           </div>
 
-          <InlineNotice tone={result?.tie ? 'warn' : result?.wasImposter ? 'success' : 'error'}>
-            {result?.tie
-              ? 'A split vote means nobody leaves the ship. Talk it through and go again.'
-              : result?.wasImposter
-                ? 'Crew struck true. The imposter is out of the game.'
-                : 'That was a crew member. The imposters gain ground.'}
+          <InlineNotice tone={result?.noImposter || result?.tie ? 'warn' : 'error'}>
+            {result?.noImposter
+              ? chaosNoImposterLine()
+              : result?.tie
+                ? 'A split vote means nobody leaves the ship. Talk it through and go again.'
+                : result?.guess === 'wrong'
+                  ? 'The word went unguessed. That player is out — the game continues.'
+                  : 'One player is out of the game. Nobody is told what they were.'}
           </InlineNotice>
 
           <div className="mt-auto space-y-2">

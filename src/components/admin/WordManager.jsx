@@ -26,7 +26,7 @@ export function WordManager() {
   const [categoryId, setCategoryId] = useState(bank.categories[0]?.id || null)
   const [query, setQuery] = useState('')
   const [tier, setTier] = useState('all')
-  const [draft, setDraft] = useState({ word: '', difficulty: 'medium' })
+  const [draft, setDraft] = useState({ word: '', difficulty: 'medium', hints: '' })
   const [error, setError] = useState('')
   const [pending, setPending] = useState(null) // { kind, payload, title, message }
   const [categoryModal, setCategoryModal] = useState(null) // { mode: 'create'|'rename', name }
@@ -46,13 +46,13 @@ export function WordManager() {
 
   const submitWord = () => {
     if (!activeCategory) return
-    const result = createWord({ categoryId: activeCategory.id, word: draft.word, difficulty: draft.difficulty })
+    const result = createWord({ categoryId: activeCategory.id, word: draft.word, difficulty: draft.difficulty, hints: draft.hints })
     if (result?.error) {
       setError(result.error)
       return
     }
     setError('')
-    setDraft({ word: '', difficulty: draft.difficulty })
+    setDraft({ word: '', difficulty: draft.difficulty, hints: '' })
     toast.success(`Added to ${activeCategory.name}`)
     audit('word-add', `${activeCategory.name}: ${draft.word}`)
   }
@@ -227,6 +227,20 @@ export function WordManager() {
                 Add
               </Button>
             </div>
+            <input
+              className="field mt-2"
+              placeholder="Cover words for the imposter — comma separated"
+              value={draft.hints}
+              aria-label="Cover words"
+              onChange={(event) => setDraft((d) => ({ ...d, hints: event.target.value }))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') submitWord()
+              }}
+            />
+            <p className="mt-1.5 text-[11px] leading-relaxed text-violet-200/50">
+              Optional, and you can list several. One is drawn at random each time the word is dealt and shown to the imposter as a bluff. Leave it
+              empty and the game offers another word from the same category instead.
+            </p>
             {error && <p className="mt-1.5 text-[11.5px] font-semibold text-magenta-neon">{error}</p>}
           </div>
         </PanelBody>
@@ -247,20 +261,44 @@ export function WordManager() {
                     exit={{ opacity: 0, x: -12 }}
                     className="flex flex-col gap-2 rounded-xl border border-violet-500/20 bg-black/30 px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3"
                   >
-                    <input
-                      className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1.5 font-display text-[12.5px] tracking-[.06em] text-violet-50 transition hover:border-violet-500/25 focus:border-cyan-300/60 focus:bg-black/40 focus:outline-none"
-                      defaultValue={entry.word}
-                      aria-label={`Edit ${entry.word}`}
-                      onBlur={(event) => {
-                        const value = event.target.value
-                        if (value === entry.word) return
-                        const result = editWord({ categoryId: activeCategory.id, index: entry.index, word: value, difficulty: entry.difficulty })
-                        if (result?.error) {
-                          toast.error(result.error)
-                          event.target.value = entry.word
-                        } else audit('word-edit', value)
-                      }}
-                    />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <input
+                        className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 font-display text-[12.5px] tracking-[.06em] text-violet-50 transition hover:border-violet-500/25 focus:border-cyan-300/60 focus:bg-black/40 focus:outline-none"
+                        defaultValue={entry.word}
+                        aria-label={`Edit ${entry.word}`}
+                        onBlur={(event) => {
+                          const value = event.target.value
+                          if (value === entry.word) return
+                          const result = editWord({ categoryId: activeCategory.id, index: entry.index, word: value, difficulty: entry.difficulty })
+                          if (result?.error) {
+                            toast.error(result.error)
+                            event.target.value = entry.word
+                          } else audit('word-edit', value)
+                        }}
+                      />
+                      <input
+                        className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1 font-mono text-[10.5px] text-cyan-100/70 transition hover:border-violet-500/25 focus:border-cyan-300/60 focus:bg-black/40 focus:outline-none"
+                        defaultValue={(entry.hints || []).join(', ')}
+                        placeholder="cover words — comma separated"
+                        aria-label={`Cover words for ${entry.word}`}
+                        onBlur={(event) => {
+                          const value = event.target.value
+                          const current = (entry.hints || []).join(', ')
+                          if (value === current) return
+                          const result = editWord({
+                            categoryId: activeCategory.id,
+                            index: entry.index,
+                            word: entry.word,
+                            difficulty: entry.difficulty,
+                            hints: value,
+                          })
+                          if (result?.error) {
+                            toast.error(result.error)
+                            event.target.value = current
+                          } else audit('word-hints', `${entry.word}: ${value || 'cleared'}`)
+                        }}
+                      />
+                    </div>
                     <div className="flex items-center gap-2">
                       <div className="flex gap-1">
                         {DIFFICULTY_TIERS.map((t) => (

@@ -4,7 +4,7 @@
  * intents back through the hook.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { GAME_PHASES, ROLES } from '../../data/constants.js'
 import { Button } from '../ui/Button.jsx'
@@ -18,6 +18,7 @@ import { WinnerScreen } from './WinnerScreen.jsx'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
 import { haptic } from '../../lib/haptics.js'
+import { chaosNoImposterLine } from '../../lib/gameEngine.js'
 
 /* ------------------------------------------------------------------ */
 /* Shared frame                                                        */
@@ -380,6 +381,115 @@ export function TallyPhase({ state, view, actions, muted }) {
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* 8. The caught imposter's last guess                                  */
+/* ------------------------------------------------------------------ */
+/**
+ * Shown only when the vote removed an imposter. The device goes to that player;
+ * everybody else sees a neutral hand-off with no role information in it, which
+ * is why the wording never says who was or was not an imposter.
+ */
+export function GuessPhase({ state, view, actions }) {
+  const accused = state.pendingGuess || null
+  const [step, setStep] = useState('handoff')
+  const [guess, setGuess] = useState('')
+  const inputRef = useRef(null)
+  const { vibrate } = useSettings()
+
+  useEffect(() => {
+    if (step !== 'guess') return
+    const id = requestAnimationFrame(() => inputRef.current?.focus())
+    return () => cancelAnimationFrame(id)
+  }, [step])
+
+  if (!accused) return null
+
+  const submit = () => {
+    const value = guess.trim()
+    if (!value) return
+    haptic('voteSubmitted', vibrate)
+    actions.submitGuess(value)
+  }
+
+  if (step === 'handoff') {
+    return (
+      <PhaseFrame state={state} view={view} phaseLabel="final guess" onQuit={actions.quit}>
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+          <Badge tone="magenta">final guess</Badge>
+          <div>
+            <h2 className="font-display text-[clamp(22px,7.5vw,30px)] tracking-[.1em] text-white text-neon">
+              {accused.name}
+            </h2>
+            <p className="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-violet-200/70">
+              Pass the device to {accused.name}. Voted out players get one shot at naming the crew's word — get it
+              right and the game flips.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full max-w-[320px]"
+            onClick={() => {
+              haptic('turnChange', vibrate)
+              setStep('guess')
+            }}
+          >
+            I'm {accused.name} — take my guess
+          </Button>
+        </div>
+      </PhaseFrame>
+    )
+  }
+
+  return (
+    <PhaseFrame state={state} view={view} phaseLabel="final guess" onQuit={actions.quit}>
+      <div className="flex flex-1 flex-col justify-center gap-4">
+        <div className="text-center">
+          <Badge tone="magenta">one guess</Badge>
+          <h2 className="mt-3 font-display text-[clamp(19px,6.5vw,26px)] tracking-[.12em] text-white text-neon">
+            WHAT WAS THE WORD?
+          </h2>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-violet-200/65">
+            Everyone else, look away. This answer settles the whole game.
+          </p>
+        </div>
+
+        <Panel className="px-4 py-4">
+          <label htmlFor="final-guess" className="label mb-2 block text-[9px]">
+            the crew's secret word
+          </label>
+          <input
+            id="final-guess"
+            ref={inputRef}
+            value={guess}
+            onChange={(event) => setGuess(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') submit()
+            }}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck="false"
+            maxLength={40}
+            placeholder="Type the word…"
+            className="w-full rounded-hud border border-violet-400/35 bg-violet-950/50 px-3.5 py-3 text-center font-display text-[16px] tracking-[.12em] text-white placeholder:text-violet-300/30 focus:border-cyan-300/70 focus:outline-none"
+          />
+        </Panel>
+
+        <InlineNotice tone="warn">Only {accused.name} should see this screen.</InlineNotice>
+      </div>
+
+      <div className="mt-auto space-y-2">
+        <Button variant="primary" size="lg" fullWidth disabled={!guess.trim()} onClick={submit}>
+          Lock my guess
+        </Button>
+        <Button variant="ghost" size="sm" fullWidth onClick={actions.quit}>
+          Quit to main menu
+        </Button>
+      </div>
+    </PhaseFrame>
+  )
+}
+
 export function ResultPhase({ state, view, actions, onExit, muted }) {
   const summary = view.summary
   const winner = state.winner
@@ -407,30 +517,48 @@ export function ResultPhase({ state, view, actions, onExit, muted }) {
     )
   }
 
+  /*
+   * Roles are never announced here. Until the game is over, nobody learns
+   * whether the player who left was crew or an imposter — the vote total is all
+   * the table gets.
+   */
+  const noImposter = Boolean(summary?.noImposter)
+  const guessWrong = summary?.guess === 'wrong'
+
   return (
     <PhaseFrame state={state} view={view} phaseLabel="result" onQuit={actions.quit}>
       <div className="space-y-3">
         <div className="text-center">
-          <Badge tone={summary?.tie ? 'amber' : 'magenta'}>{summary?.tie ? 'tied vote' : 'eliminated'}</Badge>
+          <Badge tone={summary?.tie || noImposter ? 'amber' : 'magenta'}>
+            {noImposter ? 'no imposter' : summary?.tie ? 'tied vote' : 'voted out'}
+          </Badge>
           <h2 className="mt-3 font-display text-[clamp(20px,7vw,28px)] tracking-[.1em] text-white text-neon">
-            {summary?.eliminatedName || 'Nobody'}
+            {noImposter ? 'NOBODY' : summary?.eliminatedName || 'Nobody'}
           </h2>
           <p className="mt-2 font-display text-[12.5px] tracking-[.18em] text-magenta-glow">
-            {summary?.tie ? 'NO ACCUSATION — THE IMPOSTERS SLIP AWAY' : summary?.wasImposter ? 'WAS AN IMPOSTER' : 'WAS NOT THE IMPOSTER'}
+            {noImposter
+              ? 'EVERY PLAYER WAS CREW THIS ROUND'
+              : summary?.tie
+                ? 'THE VOTE WAS SPLIT — NOBODY LEAVES'
+                : 'OUT OF THE GAME — THE HUNT CONTINUES'}
           </p>
         </div>
 
-        <Panel className="px-4 py-3">
-          <p className="label mb-2.5 text-[9px]">vote breakdown</p>
-          <VoteTally tally={summary?.tally || []} max={Math.max(1, ...Object.values(summary?.counts || { 0: 1 }))} />
-        </Panel>
+        {!noImposter && !summary?.tie && (summary?.order || []).length > 0 && (
+          <Panel className="px-4 py-3">
+            <p className="label mb-2.5 text-[9px]">vote breakdown</p>
+            <VoteTally tally={summary?.tally || []} max={Math.max(1, ...Object.values(summary?.counts || { 0: 1 }))} />
+          </Panel>
+        )}
 
-        <InlineNotice tone={summary?.tie ? 'warn' : summary?.wasImposter ? 'success' : 'error'}>
-          {summary?.tie
-            ? 'A split vote means nobody leaves — the round moves on.'
-            : summary?.wasImposter
-              ? 'Crew struck true. The imposter is out of the game.'
-              : 'That was a crew member. The imposters gain ground.'}
+        <InlineNotice tone={noImposter ? 'warn' : summary?.tie ? 'warn' : 'error'}>
+          {noImposter
+            ? chaosNoImposterLine()
+            : summary?.tie
+              ? 'A split vote means nobody leaves — the game moves on to the next round.'
+              : guessWrong
+                ? 'The word went unguessed. That player is out — the game continues.'
+                : 'One player is out of the game. Nobody is told what they were.'}
         </InlineNotice>
       </div>
 

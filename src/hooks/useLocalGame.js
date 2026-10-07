@@ -96,6 +96,7 @@ export function useLocalGame(bank) {
       castVote: (voterId, targetId) => dispatch({ type: 'CAST_VOTE', voterId, targetId }),
       openVote: (targetId) => dispatch({ type: 'OPEN_VOTE', targetId }),
       resolve: () => dispatch({ type: 'RESOLVE_ROUND' }),
+      submitGuess: (guess) => dispatch({ type: 'SUBMIT_GUESS', guess }),
       nextRound: () => dispatch({ type: 'NEXT_ROUND' }),
       replay: () => {
         const picked = bank?.pick && state?.config ? bank.pick(state.config) : state?.secret
@@ -125,7 +126,7 @@ export function useLocalGame(bank) {
       voter: currentVoter(state),
       voteProgress: { index: state.voteIndex, total: alive.length },
       objective: roundObjective(state),
-      winText: winConditionText(state.config.winRule),
+      winText: winConditionText(state.config.winRule, state.config.mode),
       summary: roundSummary(state),
       reveal: fullReveal(state),
       isLastRound: state.round >= state.totalRounds,

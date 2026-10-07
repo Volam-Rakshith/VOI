@@ -53,15 +53,22 @@ const STEPS = [
   },
   {
     id: 'find',
-    title: 'Reveal the imposter',
-    body: 'One player leaves the round and their true role is revealed. In Manhunt mode, wrong accusations keep the chase going into the next round.',
+    title: 'One player leaves',
+    body: 'The vote removes a single player, and nobody is told which side they were on. The game keeps going — a tie removes nobody at all.',
     glyph: 'eye',
     demo: 'find',
   },
   {
+    id: 'guess',
+    title: 'Caught? One guess',
+    body: 'If the player who leaves is an imposter, they get one private guess at the crew\'s word. Name it and the imposters take everything — miss it and they are simply gone.',
+    glyph: 'lock',
+    demo: 'find',
+  },
+  {
     id: 'win',
-    title: 'Win the round',
-    body: 'Catch an imposter and the crew wins instantly. Accuse the wrong player and the imposters walk free. Ties also let them slip away in Classic mode.',
+    title: 'End the game',
+    body: 'The game runs until one side has nobody left. No round limit, no single-vote finish: remove every imposter and the crew wins, outlast the crew and the imposters do. Roles are revealed only here, once it is over.',
     glyph: 'spark',
     demo: 'win',
   },
@@ -287,16 +294,21 @@ export function HowToPlay({ onNavigate }) {
               <li>• Never repeat someone else's clue — that is how imposters hide.</li>
               <li>• No spelling, no rhyming, no saying the category out loud.</li>
               <li>• Imposters can use their cover word, or invent something vague and confident.</li>
-              <li>• Ties in Classic mode mean nobody is accused — the imposters escape.</li>
+              <li>• A split vote removes nobody — the round simply starts again.</li>
+              <li>• Nobody learns a role from a single vote. Roles are revealed only when the game ends.</li>
             </ul>
             <div className="grid grid-cols-2 gap-2 pt-1">
               <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/8 px-3 py-2.5">
-                <p className="label text-[9px]">classic</p>
-                <p className="mt-1 text-[11.5px] leading-snug text-cyan-100/80">One vote settles the whole game.</p>
+                <p className="label text-[9px]">the end</p>
+                <p className="mt-1 text-[11.5px] leading-snug text-cyan-100/80">
+                  Last side standing. Caught imposters still get one guess at the word.
+                </p>
               </div>
               <div className="rounded-xl border border-fuchsia-400/30 bg-fuchsia-500/8 px-3 py-2.5">
-                <p className="label text-[9px]">manhunt</p>
-                <p className="mt-1 text-[11.5px] leading-snug text-fuchsia-100/80">Multi-round chase until one side runs out of players.</p>
+                <p className="label text-[9px]">chaos rounds</p>
+                <p className="mt-1 text-[11.5px] leading-snug text-fuchsia-100/80">
+                  Every few rounds the deal is re-rolled — nobody an imposter, several, or the whole table.
+                </p>
               </div>
             </div>
           </PanelBody>

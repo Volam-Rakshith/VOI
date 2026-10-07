@@ -94,7 +94,6 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
     setNames((current) => current.map((_, i) => pool[i % pool.length]))
   }
 
-  const activeWinRule = WIN_RULES.find((rule) => rule.id === config.winRule)
   const activeMode = GAME_MODES.find((mode) => mode.id === config.mode)
   const chaos = config.mode === 'chaos'
 
@@ -226,29 +225,15 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
             </div>
 
             <div>
-              <p className="label mb-2">win rule</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {WIN_RULES.map((rule) => (
-                  <button
-                    key={rule.id}
-                    type="button"
-                    onClick={() => setConfig((current) => ({ ...current, winRule: rule.id }))}
-                    aria-pressed={config.winRule === rule.id}
-                    className={`rounded-xl border px-3.5 py-3 text-left transition ${
-                      config.winRule === rule.id
-                        ? 'border-fuchsia-400/60 bg-fuchsia-500/12 shadow-neon-magenta'
-                        : 'border-violet-400/25 bg-black/30 hover:border-violet-300/45'
-                    }`}
-                  >
-                    <span className="font-display text-[12px] tracking-[.12em] text-violet-50">{rule.label}</span>
-                    <span className="mt-1 block text-[11.5px] leading-snug text-violet-200/60">{rule.short}</span>
-                  </button>
-                ))}
+              <p className="label mb-2">how the game ends</p>
+              <div className="rounded-xl border border-violet-400/25 bg-black/30 px-3.5 py-3">
+                <span className="font-display text-[12px] tracking-[.12em] text-violet-50">{WIN_RULES[0].label}</span>
+                <span className="mt-1 block text-[11.5px] leading-snug text-violet-200/60">{WIN_RULES[0].short}</span>
               </div>
-              {activeWinRule && <p className="mt-2 text-[11.5px] leading-relaxed text-violet-200/50">{activeWinRule.description}</p>}
+              <p className="mt-2 text-[11.5px] leading-relaxed text-violet-200/50">{WIN_RULES[0].description}</p>
               {chaos && (
                 <p className="mt-1.5 text-[11.5px] leading-relaxed text-cyan-200/75">
-                  Chaos overrides the imposter count: each round re-rolls who is an imposter, and the table may even be all imposters.
+                  Chaos overrides the imposter count: one round in every few re-rolls who is an imposter, and that round may deal nobody an imposter card or hand one to the whole table.
                 </p>
               )}
             </div>
@@ -288,14 +273,6 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
                     ]}
                   />
                 </div>
-                <Stepper
-                  label="Rounds (Manhunt)"
-                  hint="Used when the win rule is Manhunt"
-                  value={config.rounds}
-                  min={1}
-                  max={6}
-                  onChange={(value) => setConfig((current) => ({ ...current, rounds: value }))}
-                />
               </motion.div>
             )}
           </PanelBody>

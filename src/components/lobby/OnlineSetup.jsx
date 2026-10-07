@@ -218,7 +218,6 @@ export function OnlineSetup({
               suffix="s"
               onChange={(value) => setConfig((c) => ({ ...c, turnSeconds: nearestTurn(value) }))}
             />
-            <Stepper label="Rounds" value={config.rounds} min={1} max={6} onChange={(value) => setConfig((c) => ({ ...c, rounds: value }))} />
           </div>
 
           <div className="glass clip-hud-sm space-y-3 px-3.5 py-3">
@@ -256,16 +255,14 @@ export function OnlineSetup({
                 { value: 'chaos', label: 'Chaos', hint: 'anyone could be one' },
               ]}
             />
-            <SegmentedControl
-              size="sm"
-              label="win rule"
-              value={config.winRule}
-              onChange={(value) => setConfig((c) => ({ ...c, winRule: value }))}
-              options={[
-                { value: 'classic', label: 'Classic', hint: 'one vote' },
-                { value: 'survival', label: 'Manhunt', hint: 'multi-round' },
-              ]}
-            />
+            {/* One win rule: the game ends when a side runs out of players. */}
+            <div className="rounded-xl border border-violet-400/25 bg-black/30 px-3 py-2.5">
+              <span className="label text-[9px]">how the game ends</span>
+              <p className="mt-1 text-[11.5px] leading-relaxed text-violet-200/60">
+                Until one side has nobody left. A caught imposter gets one guess at the word first — name it and the imposters take the
+                game. A split vote removes nobody.
+              </p>
+            </div>
             {chaos && (
               <p className="text-[11.5px] leading-relaxed text-cyan-200/75">
                 Chaos re-rolls the imposters every round — one, several, many, or the whole table.

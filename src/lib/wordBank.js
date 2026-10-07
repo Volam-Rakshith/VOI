@@ -43,13 +43,38 @@ function sanitizeBank(raw) {
       if (usedWords.has(key)) return
       usedWords.add(key)
       const difficulty = ['easy', 'medium', 'hard'].includes(entry?.difficulty) ? entry.difficulty : 'medium'
-      words.push({ word: check.value, difficulty })
+      const hints = normalizeHints(entry?.hints, check.value)
+      words.push(hints.length ? { word: check.value, difficulty, hints } : { word: check.value, difficulty })
     })
     if (!words.length) return
     categories.push({ id, name: nameCheck.value, builtin: Boolean(cat.builtin), words })
   })
   if (!categories.length) return defaultBank()
   return { version: 1, categories, updatedAt: Number(raw.updatedAt) || Date.now() }
+}
+
+/**
+ * Cover words ("hints") are the words the imposter may bluff with. A word can
+ * carry several of them and the game draws one at random each time it is dealt,
+ * so a single stored word gives a different bluff on every replay.
+ */
+export const MAX_HINTS = 6
+
+/** Fold whatever the editor sent into a clean, de-duplicated hint list. */
+export function normalizeHints(input, word = '') {
+  const raw = Array.isArray(input) ? input : String(input ?? '').split(/[,\n]/)
+  const taken = new Set()
+  const target = String(word || '').trim().toLowerCase()
+  const hints = []
+  raw.forEach((candidate) => {
+    const check = validateWord(String(candidate ?? '').trim())
+    if (!check.ok) return
+    const key = check.value.toLowerCase()
+    if (key === target || taken.has(key)) return
+    taken.add(key)
+    if (hints.length < MAX_HINTS) hints.push(check.value)
+  })
+  return hints
 }
 
 export function loadBank() {
@@ -128,7 +153,7 @@ export function deleteCategory(bank, categoryId) {
   return { bank: { ...bank, categories: next } }
 }
 
-export function addWord(bank, { categoryId, word, difficulty = 'medium' }) {
+export function addWord(bank, { categoryId, word, difficulty = 'medium', hints = [] }) {
   const cat = bank.categories.find((c) => c.id === categoryId)
   if (!cat) return { bank, error: 'Pick a category first.' }
   const check = validateWord(word)
@@ -136,28 +161,35 @@ export function addWord(bank, { categoryId, word, difficulty = 'medium' }) {
   if (cat.words.some((w) => w.word.toLowerCase() === check.value.toLowerCase()))
     return { bank, error: 'That word is already in this category.' }
   const tier = ['easy', 'medium', 'hard'].includes(difficulty) ? difficulty : 'medium'
+  const clean = normalizeHints(hints, check.value)
+  const entry = clean.length ? { word: check.value, difficulty: tier, hints: clean } : { word: check.value, difficulty: tier }
   return {
     bank: {
       ...bank,
-      categories: bank.categories.map((c) =>
-        c.id === categoryId ? { ...c, words: [...c.words, { word: check.value, difficulty: tier }] } : c,
-      ),
+      categories: bank.categories.map((c) => (c.id === categoryId ? { ...c, words: [...c.words, entry] } : c)),
     },
   }
 }
 
-export function updateWord(bank, { categoryId, index, word, difficulty }) {
+export function updateWord(bank, { categoryId, index, word, difficulty, hints }) {
   const cat = bank.categories.find((c) => c.id === categoryId)
   if (!cat || !cat.words[index]) return { bank, error: 'That word no longer exists.' }
   const check = validateWord(word)
   if (!check.ok) return { bank, error: check.error }
   const tier = ['easy', 'medium', 'hard'].includes(difficulty) ? difficulty : cat.words[index].difficulty
+  /* `hints` is optional: a call that only reclassifies a word keeps its hints. */
+  const clean = normalizeHints(hints === undefined ? cat.words[index].hints : hints, check.value)
   return {
     bank: {
       ...bank,
       categories: bank.categories.map((c) =>
         c.id === categoryId
-          ? { ...c, words: c.words.map((w, i) => (i === index ? { word: check.value, difficulty: tier } : w)) }
+          ? {
+              ...c,
+              words: c.words.map((w, i) =>
+                i === index ? (clean.length ? { word: check.value, difficulty: tier, hints: clean } : { word: check.value, difficulty: tier }) : w,
+              ),
+            }
           : c,
       ),
     },
@@ -198,7 +230,7 @@ export function pickWord(bank, { categoryIds = ['random'], difficulty = 'mixed',
     if (!selected) return
     category.words.forEach((entry) => {
       if (difficulty !== 'mixed' && entry.difficulty !== difficulty) return
-      pool.push({ word: entry.word, difficulty: entry.difficulty, categoryId: category.id, categoryName: category.name })
+      pool.push({ word: entry.word, difficulty: entry.difficulty, categoryId: category.id, categoryName: category.name, hints: entry.hints })
     })
   })
 
@@ -209,16 +241,27 @@ export function pickWord(bank, { categoryIds = ['random'], difficulty = 'mixed',
     const relaxed = []
     bank.categories.forEach((category) => {
       if (!(wantRandom || categoryIds.includes(category.id))) return
-      category.words.forEach((entry) => relaxed.push({ word: entry.word, difficulty: entry.difficulty, categoryId: category.id, categoryName: category.name }))
+      category.words.forEach((entry) => relaxed.push({ word: entry.word, difficulty: entry.difficulty, categoryId: category.id, categoryName: category.name, hints: entry.hints }))
     })
     candidates = relaxed.length ? relaxed : bank.categories.flatMap((c) => c.words.map((w) => ({ ...w, categoryId: c.id, categoryName: c.name })))
   }
   if (!candidates.length) return { word: 'Mystery', difficulty: 'medium', categoryId: 'fallback', categoryName: 'Fallback' }
 
   const pick = candidates[randomInt(candidates.length)]
-  // A decoy invites the imposters to bluff a plausible-but-wrong clue.
-  const decoys = candidates.filter((c) => c.word !== pick.word)
-  const decoy = decoys.length ? decoys[randomInt(Math.min(decoys.length, 24))].word : null
+
+  /*
+   * The decoy is the cover word the imposter bluffs with, so it has to fit
+   * beside the real word:
+   *   1. the word's own hints, if the editor gave it any — one at random;
+   *   2. otherwise another word from the same category, which keeps the bluff
+   *      in the same world as the word (a "kitchen sink" never gets "backpack");
+   *   3. only then anything else in the pool, so a one-word category still deals.
+   */
+  const sameCategory = candidates.filter((c) => c.word !== pick.word && c.categoryId === pick.categoryId)
+  const wider = candidates.filter((c) => c.word !== pick.word)
+  const decoyPool = sameCategory.length ? sameCategory : wider
+  const hint = Array.isArray(pick.hints) && pick.hints.length ? pick.hints[randomInt(pick.hints.length)] : null
+  const decoy = hint || (decoyPool.length ? decoyPool[randomInt(Math.min(decoyPool.length, 24))].word : null)
 
   return { ...pick, decoy }
 }

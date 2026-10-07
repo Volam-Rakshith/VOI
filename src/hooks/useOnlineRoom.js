@@ -35,8 +35,8 @@ import {
   terminateRoom,
   writeSecrets,
 } from '../lib/onlineService.js'
-import { assignRolesFor } from '../lib/gameEngine.js'
-import { buildClueOrder, computeResult, isHostDriver, phaseView, revealProgress, turnPlayer, voteProgress } from '../lib/onlineGame.js'
+import { assignOpeningRoles, assignRolesFor, isChaosMode, isChaosRound, scheduleNextChaosRound } from '../lib/gameEngine.js'
+import { buildClueOrder, computeResult, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, turnPlayer, voteProgress } from '../lib/onlineGame.js'
 import { normalizeRoom } from '../lib/onlineService.js'
 import { readJSON, remove, writeJSON } from '../utils/storage.js'
 
@@ -478,7 +478,8 @@ export function useOnlineRoom(bank) {
           })
         : { word: 'Mystery', categoryName: 'Random', difficulty: 'medium', decoy: null }
 
-      const { roles } = assignRolesFor(room.config, lobby.length)
+      /* Round one is the ordinary deal in both modes — see assignOpeningRoles. */
+      const { roles } = assignOpeningRoles(room.config, lobby.length)
       const roleMap = {}
       lobby.forEach((p, index) => {
         roleMap[p.id] = roles[index]
@@ -513,6 +514,10 @@ export function useOnlineRoom(bank) {
         history: [],
         eliminated: [],
         deck: { categoryLabel: picked.categoryName, difficulty: picked.difficulty },
+        /* Round one is an ordinary round; the first chaos event lands 3-5 rounds in. */
+        chaosRound: false,
+        nextChaosRound: isChaosMode(room.config) ? scheduleNextChaosRound(1) : null,
+        noImposterRound: false,
       }
 
       const { room: updated } = await writeSecrets({
@@ -540,6 +545,31 @@ export function useOnlineRoom(bank) {
     if (!code || !room?.game) return
     const result = computeResult(room, roles || {})
     const gameOver = Boolean(result.winner)
+
+    /*
+     * A caught imposter is never settled by the vote itself. The room pauses on
+     * the guess screen so that player — and only that player — can name the
+     * crew's word. The host judges it in `publishGuess` below.
+     */
+    if (result.needsGuess) {
+      const patch = {
+        game: {
+          ...room.game,
+          phase: ONLINE_PHASES.GUESS,
+          pendingGuess: { playerId: result.eliminatedId, name: result.eliminatedName },
+          guess: null,
+          /* No role travels in the room document — see publicResult(). */
+          lastResult: { ...publicResult(result), winner: null },
+          winner: null,
+          eliminated: [...(room.game.eliminated || []), result.eliminatedId],
+          history: [...(room.game.history || []), { ...publicResult(result), winner: null }],
+          timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+        },
+      }
+      const { room: updated } = await patchRoom({ code, patch })
+      if (updated) applyRoom(updated)
+      return
+    }
     const revealedRoles = gameOver
       ? Object.fromEntries(room.players.map((p) => [p.id, roles?.[p.id] || ROLES.CREW]))
       : null
@@ -547,10 +577,10 @@ export function useOnlineRoom(bank) {
       game: {
         ...room.game,
         phase: ONLINE_PHASES.RESULT,
-        lastResult: result,
+        lastResult: publicResult(result),
         winner: result.winner,
         revealedRoles,
-        history: [...(room.game.history || []), result],
+        history: [...(room.game.history || []), publicResult(result)],
         eliminated: result.eliminatedId ? [...(room.game.eliminated || []), result.eliminatedId] : room.game.eliminated || [],
         timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
       },
@@ -559,6 +589,71 @@ export function useOnlineRoom(bank) {
     const { room: updated } = await patchRoom({ code, patch, status: patch.status })
     if (updated) applyRoom(updated)
   }, [room, applyRoom])
+
+  /** The accused player: name the crew's word. Anyone else is refused. */
+  const submitGuess = useCallback(
+    async (text) => {
+      const { code, playerId } = sessionRef.current
+      const value = String(text || '').trim()
+      if (!code || !room?.game || !value) return { ok: false, error: 'Type the word first.' }
+      if (room.game.phase !== ONLINE_PHASES.GUESS) return { ok: false, error: 'No guess is being taken.' }
+      if (room.game.pendingGuess?.playerId !== playerId) return { ok: false, error: 'Only the voted-out player guesses.' }
+
+      const { room: updated } = await patchRoom({
+        code,
+        patch: { game: { ...room.game, guess: { playerId, text: value, at: Date.now() } } },
+      })
+      if (updated) applyRoom(updated)
+      return { ok: true }
+    },
+    [room, applyRoom],
+  )
+
+  /**
+   * Host: judge the guess against the round's private word. The word is read
+   * from the reserved entry in the secrets column — never from public state —
+   * so a curious player reading the room row learns nothing.
+   */
+  const publishGuess = useCallback(async () => {
+    const { code, roles, playerId } = sessionRef.current
+    if (!code || !room?.game) return
+    const pending = room.game.guess
+    if (!pending || !room.game.pendingGuess) return
+    if (!isHostDriver(room, playerId)) return
+
+    const meta = await fetchSecret({ code, playerId: SECRET_META_KEY })
+      .then(({ secret: payload }) => payload || null)
+      .catch(() => null)
+    const judged = resolveGuess({ guess: pending.text, word: meta?.word || null })
+
+    const roles_ = roles || {}
+    const gameOver = judged.correct
+    const patch = {
+      game: {
+        ...room.game,
+        phase: ONLINE_PHASES.RESULT,
+        pendingGuess: null,
+        winner: judged.correct ? 'imposter' : null,
+        lastResult: { ...(room.game.lastResult || {}), winner: judged.correct ? 'imposter' : null, guess: judged.correct ? 'correct' : 'wrong', guessText: pending.text },
+        revealedRoles: gameOver
+          ? Object.fromEntries(room.players.map((p) => [p.id, roles_[p.id] || ROLES.CREW]))
+          : room.game.revealedRoles || null,
+        timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+      },
+      status: gameOver ? ROOM_STATUS.ENDED : room.status,
+    }
+    const { room: updated } = await patchRoom({ code, patch, status: patch.status })
+    if (updated) applyRoom(updated)
+  }, [room, applyRoom])
+
+  /* Host: judge the guess as soon as it lands in the room. */
+  useEffect(() => {
+    if (!room?.game) return
+    if (room.game.phase !== ONLINE_PHASES.GUESS) return
+    if (!room.game.guess) return
+    if (!isHostDriver(room, sessionRef.current.playerId)) return
+    publishGuess()
+  }, [room, publishGuess])
 
   /** Host: begin the clue phase (after everyone has seen their card). */
   const beginClues = useCallback(async () => {
@@ -589,9 +684,19 @@ export function useOnlineRoom(bank) {
     if (!isHostDriver(room, playerId)) return
     const aliveIds = room.players.filter((p) => !(room.game.eliminated || []).includes(p.id)).map((p) => p.id)
 
+    const round = (room.game.round || 1) + 1
+    /*
+     * Chaos is an event, not a state: the room re-rolls only on its scheduled
+     * chaos rounds, exactly like the pass-&-play engine. In between, the base
+     * assignment stands — except after a chaos round that dealt nobody an
+     * imposter, which hands the configured count back so the game can be won.
+     */
+    const chaosNow = isChaosRound({ config: room.config, nextChaosRound: room.game.nextChaosRound }, round)
+    const restoresBase = !chaosNow && Boolean(room.game.noImposterRound)
+
     const advance = {
       ...room.game,
-      round: (room.game.round || 1) + 1,
+      round,
       phase: ONLINE_PHASES.REVEAL,
       revealedBy: [],
       clueOrder: buildClueOrder(aliveIds),
@@ -600,23 +705,31 @@ export function useOnlineRoom(bank) {
       votes: {},
       submitted: [],
       lastResult: null,
+      chaosRound: chaosNow,
+      nextChaosRound: chaosNow ? scheduleNextChaosRound(round) : room.game.nextChaosRound,
+      noImposterRound: false,
       timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
     }
 
-    /* Chaos re-rolls roles for every player still in play — the previous
+    /* A chaos round re-rolls roles for every player still in play — the previous
        assignment is never reused. Eliminated players keep the role they were
        judged on so the end-of-game reveal stays truthful. */
-    if (room.config?.mode === 'chaos' && aliveIds.length) {
+    if ((chaosNow || restoresBase) && aliveIds.length) {
       // One small read of the reserved entry — never the whole private map.
       const meta = await fetchSecret({ code, playerId: SECRET_META_KEY })
         .then(({ secret: payload }) => payload || null)
         .catch(() => null)
       const word = meta?.word || null
 
-      // Without the round's word a re-roll would leave the crew wordless, so
-      // keep the existing assignment rather than break the round.
+      // Without the round's word a rewritten deal would leave the crew
+      // wordless, so keep the existing assignment rather than break the round.
       if (word) {
-        const { roles } = assignRolesFor(room.config, aliveIds.length)
+        const { roles } = chaosNow
+          ? assignRolesFor(room.config, aliveIds.length)
+          : assignRolesFor({ ...room.config, mode: 'normal' }, aliveIds.length)
+        /* A chaos round can legitimately deal nobody the card; the room says so
+           and the next ordinary round puts the configured count back. */
+        const dealtNobody = roles.every((role) => role !== ROLES.IMPOSTER)
         const nextSecrets = {}
         aliveIds.forEach((id, index) => {
           const role = roles[index]
@@ -633,7 +746,7 @@ export function useOnlineRoom(bank) {
         const { room: updated } = await writeSecrets({
           code,
           secrets: nextSecrets,
-          roomPatch: { game: advance },
+          roomPatch: { game: { ...advance, noImposterRound: dealtNobody } },
         })
         if (updated) applyRoom(updated)
         return
@@ -687,6 +800,10 @@ export function useOnlineRoom(bank) {
         history: [],
         eliminated: [],
         deck: { categoryLabel: picked.categoryName, difficulty: picked.difficulty },
+        /* A fresh game means a fresh chaos clock, and an ordinary opening round. */
+        chaosRound: false,
+        nextChaosRound: isChaosMode(room.config) ? scheduleNextChaosRound(1) : null,
+        noImposterRound: false,
       }
       const { room: updated } = await writeSecrets({ code, secrets, roomPatch: { game, status: ROOM_STATUS.PLAYING }, status: ROOM_STATUS.PLAYING })
       const nextSession = { ...sessionRef.current, roles: roleMap }
@@ -844,6 +961,8 @@ export function useOnlineRoom(bank) {
       nextClue,
       beginClues,
       submitVote,
+      submitGuess,
+      publishGuess,
       startGame,
       nextRound,
       playAgain,

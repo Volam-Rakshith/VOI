@@ -7,7 +7,7 @@
  */
 
 import { ONLINE_PHASES, ROOM_STATUS, ROLES } from '../data/constants.js'
-import { calculateVotes, determineWinner, winConditionText } from './gameEngine.js'
+import { calculateVotes, determineWinner, isVoteStalemate, voteStalemateReason, winConditionText } from './gameEngine.js'
 import { shuffle } from '../utils/random.js'
 
 export const OA = ONLINE_PHASES
@@ -88,6 +88,19 @@ export function computeResult(room, roles = {}) {
     eliminated,
   })
 
+  /*
+   * A caught imposter is never settled by the vote: they get one guess at the
+   * crew's word first. The room moves to the guess phase, and the guess itself
+   * is judged by the host (see `resolveGuess`).
+   */
+  const needsGuess = Boolean(wasImposter && targetId)
+
+  /*
+   * Two players left: the split vote can never be broken, so the round resolves
+   * instead of repeating forever (see isVoteStalemate in the game engine).
+   */
+  const stalemate = isVoteStalemate(state, tally)
+
   return {
     round: state.round,
     counts: tally.counts,
@@ -97,8 +110,46 @@ export function computeResult(room, roles = {}) {
     eliminatedId: targetId,
     eliminatedName: target?.name || null,
     wasImposter,
-    winner: winner?.team || null,
-    reason: winner?.reason || '',
+    needsGuess,
+    stalemate,
+    winner: needsGuess ? null : stalemate ? 'imposter' : winner?.team || null,
+    reason: needsGuess ? '' : stalemate ? voteStalemateReason() : winner?.reason || '',
+  }
+}
+
+/**
+ * The result as every player may see it.
+ *
+ * The room document is shared with the whole table, so a role never travels in
+ * it: `wasImposter` is used by the host alone (it decides whether the guess
+ * screen opens) and is dropped before anything is published. Roles only reach
+ * the room inside `revealedRoles`, and only once the game is over.
+ */
+export function publicResult(result) {
+  if (!result) return result
+  const { wasImposter, ...rest } = result
+  return rest
+}
+
+/**
+ * Judge the caught imposter's one guess. `word` is the round's private word,
+ * read by the host from the reserved secret entry — never from public state.
+ */
+export function resolveGuess({ guess, word }) {
+  const normalize = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  const truth = normalize(word)
+  const attempt = normalize(guess)
+  const correct = Boolean(truth && attempt && truth === attempt)
+
+  return {
+    correct,
+    winner: correct ? 'imposter' : null,
+    reason: correct ? 'The caught imposter named the secret word — the imposters take the game.' : '',
   }
 }
 
@@ -182,6 +233,21 @@ export function phaseView(room, playerId, secret) {
       const votes = currentVotes(room)
       const mine = votes[playerId] || null
       return { screen: 'voting', votes, mine, progress: voteProgress(room), alive, amAlive, secret }
+    }
+    case OA.GUESS: {
+      const pending = game.pendingGuess || null
+      const isMine = pending?.playerId === playerId
+      return {
+        screen: 'guess',
+        pending,
+        isMine,
+        /* The guess itself is public the moment it is made, so late joiners and
+           the waiting table see the same thing. Only the accused may type one. */
+        submitted: game.guess?.text || null,
+        guessedBy: game.guess?.playerId || null,
+        result: game.lastResult,
+        alive,
+      }
     }
     case OA.TALLY:
     case OA.RESULT: {

@@ -180,19 +180,11 @@ export function LobbyView({ online, onExit }) {
                     { value: 'chaos', label: 'Chaos' },
                   ]}
                 />
-                <SegmentedControl
-                  size="sm"
-                  label="win rule"
-                  value={room.config.winRule}
-                  onChange={async (value) => {
-                    const result = await actions.updateConfig({ winRule: value })
-                    if (!result.ok) toast.error(result.error)
-                  }}
-                  options={[
-                    { value: 'classic', label: 'Classic' },
-                    { value: 'survival', label: 'Manhunt' },
-                  ]}
-                />
+                {/* One win rule: the game ends when a side runs out of players. */}
+                <p className="text-[11.5px] leading-relaxed text-violet-200/50">
+                  The game ends when one side has nobody left. A caught imposter gets one guess at the word first — name it and
+                  the imposters take the game. A split vote removes nobody.
+                </p>
               </motion.div>
             )}
 

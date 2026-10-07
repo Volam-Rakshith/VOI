@@ -27,6 +27,21 @@ export function SecretCard({
   const cardRef = useRef(null)
 
   const isImposter = secret?.role === 'imposter'
+  const word = secret?.word || '—'
+
+  /*
+   * A custom word can be long ("kitchen sink", "the last slice of pizza"), so
+   * the headline steps down in size as the word grows and is allowed to wrap.
+   * Nothing ever spills off the card, whatever somebody typed into the editor.
+   */
+  const wordFontSize =
+    word.length > 22
+      ? 'clamp(14px,4.4vw,18px)'
+      : word.length > 16
+        ? 'clamp(17px,5.4vw,23px)'
+        : word.length > 10
+          ? 'clamp(21px,6.8vw,29px)'
+          : 'clamp(26px,9vw,38px)'
 
   const handlePointerMove = useCallback(
     (event) => {
@@ -43,9 +58,14 @@ export function SecretCard({
     [motionOff],
   )
 
-  const accent = isImposter
-    ? { border: 'rgba(255,43,209,.75)', glow: 'rgba(255,43,209,.45)', text: '#ffd6f6' }
-    : { border: 'rgba(34,211,238,.7)', glow: 'rgba(34,211,238,.4)', text: '#d8fbff' }
+  /*
+   * Every card wears the same cyan/indigo treatment. The imposter card used to
+   * be tinted magenta, which meant anybody glancing at the screen while it was
+   * handed around could see who was holding the imposter card before they even
+   * read a word of it. The role is now told in the copy alone — which only the
+   * player holding the card ever reads.
+   */
+  const accent = { border: 'rgba(34,211,238,.7)', glow: 'rgba(34,211,238,.4)', text: '#d8fbff' }
 
   return (
     <div className="flex w-full flex-col items-center">
@@ -151,9 +171,8 @@ export function SecretCard({
             className="backface-hidden absolute inset-0 flex flex-col items-center justify-between overflow-hidden clip-hud"
             style={{
               transform: 'rotateY(180deg)',
-              background: isImposter
-                ? 'linear-gradient(158deg, #3A0327 0%, #1B0120 52%, #0A0013 100%)'
-                : 'linear-gradient(158deg, #062B3A 0%, #12012B 52%, #0A0018 100%)',
+              /* Deliberately the same gradient for both roles — see `accent`. */
+              background: 'linear-gradient(158deg, #062B3A 0%, #12012B 52%, #0A0018 100%)',
               border: `1px solid ${accent.border}`,
               boxShadow: `0 34px 90px -28px ${accent.glow}, inset 0 1px 0 rgba(255,255,255,.08)`,
             }}
@@ -180,19 +199,19 @@ export function SecretCard({
             <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
               {isImposter ? (
                 <>
-                  <Glyph name="skull" size={46} className="text-fuchsia-300 animate-pulse" />
-                  <p className="font-display text-[20px] leading-tight tracking-[.12em] text-white text-magenta-glow">
+                  <Glyph name="skull" size={46} className="text-cyan-200 animate-pulse" />
+                  <p className="font-display text-[20px] leading-tight tracking-[.12em] text-white text-cyan-glow">
                     YOU ARE THE
                     <br />
                     IMPOSTER
                   </p>
-                  <p className="max-w-[240px] text-[12px] leading-relaxed text-fuchsia-100/80">
+                  <p className="max-w-[240px] text-[12px] leading-relaxed text-cyan-100/75">
                     You do not get the word. Bluff a clue, mirror the crew, survive the vote.
                   </p>
                   {showDecoy && secret?.decoy && (
-                    <div className="mt-1 rounded-xl border border-fuchsia-400/40 bg-black/40 px-4 py-2.5">
-                      <p className="label text-[8.5px] text-fuchsia-200/80">cover word you may use</p>
-                      <p className="mt-1 font-display text-[15px] tracking-[.1em] text-fuchsia-100">{secret.decoy}</p>
+                    <div className="mt-1 rounded-xl border border-cyan-400/35 bg-black/40 px-4 py-2.5">
+                      <p className="label text-[8.5px] text-cyan-200/80">cover word you may use</p>
+                      <p className="mt-1 font-display text-[15px] tracking-[.1em] text-cyan-100">{secret.decoy}</p>
                     </div>
                   )}
                 </>
@@ -203,9 +222,10 @@ export function SecretCard({
                     initial={motionOff ? {} : { opacity: 0, scale: 0.9, filter: 'blur(8px)' }}
                     animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
                     transition={{ delay: motionOff ? 0 : 0.16, duration: 0.5 }}
-                    className="font-display text-[clamp(26px,9vw,38px)] leading-tight tracking-[.06em] text-white text-cyan-glow"
+                    style={{ fontSize: wordFontSize }}
+                    className="w-full max-w-full break-words font-display leading-tight tracking-[.06em] text-white text-cyan-glow"
                   >
-                    {secret?.word || '—'}
+                    {word}
                   </motion.p>
                   {secret?.categoryName && (
                     <p className="rounded-full border border-cyan-400/35 px-3 py-1 text-[10.5px] uppercase tracking-[.2em] text-cyan-100/80">
