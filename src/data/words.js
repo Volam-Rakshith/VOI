@@ -7,6 +7,8 @@
  * and (optionally) sync to Supabase.
  */
 
+import { BUILTIN_HINTS } from './hints.js'
+
 export const DIFFICULTY_TIERS = ['easy', 'medium', 'hard']
 
 /** @typedef {{ word: string, difficulty: 'easy'|'medium'|'hard' }} Entry */
@@ -242,7 +244,19 @@ export const RANDOM_CATEGORY = { id: 'random', name: 'Random', builtin: true, wo
 
 export const CATEGORY_ICONS = ['home', 'food', 'paw', 'pin', 'chip', 'film', 'ball', 'book', 'plane', 'star', 'skull', 'spark']
 
-/** Deep-ish clone helper so callers never mutate the module constant. */
+/**
+ * Deep-ish clone helper so callers never mutate the module constant.
+ *
+ * Every built-in word is handed its curated cover words (see data/hints.js), so
+ * the imposter has three to five same-world bluffs to choose from and never
+ * sees the same one twice in a row.
+ */
 export function cloneDefaultCategories() {
-  return DEFAULT_CATEGORIES.map((c) => ({ ...c, words: c.words.map((w) => ({ ...w })) }))
+  return DEFAULT_CATEGORIES.map((c) => ({
+    ...c,
+    words: c.words.map((w) => {
+      const hints = BUILTIN_HINTS[w.word]
+      return hints?.length ? { ...w, hints: [...hints] } : { ...w }
+    }),
+  }))
 }

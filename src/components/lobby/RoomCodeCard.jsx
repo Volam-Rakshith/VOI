@@ -62,14 +62,20 @@ export function RoomCodeCard({ code, compact = false }) {
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-neon/70 to-transparent" />
       <div className="flex flex-col items-center gap-3 text-center">
         <Badge tone="cyan">room code</Badge>
-        <div className="flex items-center gap-1.5" aria-label={`Room code ${code}`}>
+        {/* Six tiles have to fit a 320px phone without clipping, so the tiles
+            tighten up once the code is longer than four characters. */}
+        <div className={`flex items-center ${code.length > 4 ? 'gap-1' : 'gap-1.5'}`} aria-label={`Room code ${code}`}>
           {code.split('').map((char, index) => (
             <motion.span
               key={`${char}-${index}`}
               initial={motionOff ? {} : { opacity: 0, y: -18, rotateX: -70, filter: 'blur(8px)' }}
               animate={{ opacity: 1, y: 0, rotateX: 0, filter: 'blur(0px)' }}
               transition={{ delay: motionOff ? 0 : index * 0.09, type: 'spring', stiffness: 320, damping: 22 }}
-              className="grid min-w-[clamp(46px,15vw,64px)] place-items-center rounded-xl border border-cyan-300/45 bg-black/45 px-2 py-2.5 font-display text-[clamp(28px,10vw,40px)] leading-none tracking-[.06em] text-white text-cyan-glow"
+              className={`grid place-items-center rounded-xl border border-cyan-300/45 bg-black/45 font-display leading-none tracking-[.06em] text-white text-cyan-glow ${
+                code.length > 4
+                  ? 'min-w-[clamp(34px,11.5vw,52px)] px-1.5 py-2 text-[clamp(20px,7.6vw,32px)]'
+                  : 'min-w-[clamp(46px,15vw,64px)] px-2 py-2.5 text-[clamp(28px,10vw,40px)]'
+              }`}
             >
               {char}
             </motion.span>

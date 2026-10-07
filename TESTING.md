@@ -28,8 +28,8 @@ Optional but recommended before committing:
 
 ```bash
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
-npm run test:engine   # 118 rule/utility tests → expect "118 passed, 0 failed"
-npm run test:ui       # 120 UI checks (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
+npm run test:engine   # 122 rule/utility tests → expect "122 passed, 0 failed"
+npm run test:ui       # 123 UI checks (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
 npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
 ```
 
@@ -192,7 +192,7 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 ## 6. Online rooms (needs Supabase running — any of the three ways above)
 
 - [ ] Without any configuration: Online Room shows the connect card (no broken UI)
-- [ ] After setup: Create room → 4-char code, copy invite link works
+- [ ] After setup: Create room → 6-char code, copy invite link works
 - [ ] Join from a second device/browser with the code → appears in the lobby in < 2 s
 - [ ] Ready toggle syncs; host start button blocked until everyone is ready
 - [ ] Host can change imposters / turn length / rounds / category / win rule live

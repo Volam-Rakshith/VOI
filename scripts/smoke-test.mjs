@@ -202,9 +202,35 @@ try {
   record('app mounts without crashing', false, renderError)
 }
 
+/* The splash must say the name once. It used to render <Logo> (mark + studio +
+   IMPOSTER wordmark) and then print the studio and the name again underneath,
+   so the opening screen read "IMPOSTER IMPOSTER". The menu is already mounted
+   behind the splash overlay, so the count is scoped to the splash itself. */
+const splashEl = () => window.document.querySelector('[class*="z-[200]"]')
+const splashText = splashEl()?.textContent || ''
+const splashNameCount = (splashText.match(/IMPOSTER/g) || []).length
+record(
+  'the splash shows the game name exactly once',
+  Boolean(splashEl()) && splashNameCount === 1,
+  `found ${splashNameCount} occurrences: ${splashText.replace(/\s+/g, ' ').slice(0, 140)}`,
+)
+record(
+  'the splash shows the studio line exactly once',
+  (splashText.match(/VR DEVELOPMENTS/g) || []).length === 1,
+  `found ${(splashText.match(/VR DEVELOPMENTS/g) || []).length}`,
+)
+
 /* Splash → menu */
 await wait(2000)
 record('splash hands over to the main menu', text().includes('PLAY LOCAL') && text().includes('ONLINE ROOM'), text().slice(0, 160))
+/* Let the splash finish its exit animation before counting the menu. */
+await waitUntil(() => !splashEl(), 1500)
+const menuNameCount = (text().match(/IMPOSTER/g) || []).length
+record(
+  'the main menu shows the name exactly once',
+  menuNameCount === 1,
+  `found ${menuNameCount} occurrences: ${text().replace(/\s+/g, ' ').slice(0, 140)}`,
+)
 record('pre-hydration boot plate is removed', !window.document.getElementById('boot'))
 record('studio credit is present', text().includes('Crafted with passion by VR DEVELOPMENTS'))
 
@@ -249,7 +275,7 @@ const setValue = (input, value) => {
 
 await navigate('online')
 await wait(360)
-const openBackend = buttonMatching(/Connect a backend/i)
+const openBackend = buttonMatching(/I'm the organiser/i)
 record('an unconfigured device is offered the backend panel', Boolean(openBackend))
 if (openBackend) {
   click(openBackend)
@@ -263,7 +289,7 @@ if (openBackend) {
     const save = buttonMatching(/Save & use/i)
     click(save)
     await wait(520)
-    record('saving a backend connects the device', !/Connect a backend to play online/i.test(text()), text().slice(0, 120))
+    record('saving a backend connects the device', !/Waiting for the room server/i.test(text()), text().slice(0, 120))
   } else {
     record('saving a backend connects the device', false, 'backend fields not found')
   }
@@ -366,8 +392,8 @@ record(
   text().slice(0, 120),
 )
 
-await navigate('lobby?room=A7KQ')
-record('room deep link renders the seat prompt', text().includes('TAKE YOUR SEAT') || text().includes('A7KQ'))
+await navigate('lobby?room=A7KQMN')
+record('room deep link renders the seat prompt', text().includes('TAKE YOUR SEAT') || text().includes('A7KQMN'))
 
 /* Unknown route falls back to home instead of a blank screen */
 await navigate('does-not-exist')
@@ -686,14 +712,14 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   await navigate('online')
   await wait(300)
 
-  record('online mode offers a way in when no backend is set', /Connect a backend/i.test(text()))
+  record('online mode offers a way in when no backend is set', /I'm the organiser/i.test(text()) && /Check again/i.test(text()))
   record('the setup screen explains what is needed', /Project URL/i.test(text()) && /anon key/i.test(text()))
   record(
     'the tile does not demand a rebuild or file edit',
     /no rebuild/i.test(text()) || /nothing to edit in code/i.test(text()),
   )
 
-  const opened = await clickMatching(/Connect a backend/i, 420)
+  const opened = await clickMatching(/I'm the organiser/i, 420)
   record('the connect panel opens from the online screen', opened && /Connect a backend/i.test(text()))
 
   const urlInput = labelledInput('Supabase project URL')
@@ -773,11 +799,17 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   const after = supabaseLib.getSupabase()
   record('changing the project rebuilds the client', before === null || after === null || before !== after)
 
-  // And forgetting device values falls back cleanly.
+  // And forgetting device values falls back cleanly, through the real button
+  // (a raw clearStoredBackend() bypasses the notification the app relies on).
   runtimeConfig.clearStoredBackend()
+  await navigate('home')
   await navigate('online')
-  await wait(360)
-  record('forgetting device values returns to the setup card', /Connect a backend/i.test(text()))
+  await wait(400)
+  record(
+    'forgetting device values returns to the setup card',
+    /Waiting for the room server/i.test(text()) && /I'm the organiser/i.test(text()) && /Check again/i.test(text()),
+    text().slice(0, 160),
+  )
   record('clearing really clears storage', runtimeConfig.hasStoredBackend() === false && supabaseLib.isOnlineConfigured() === false)
 }
 

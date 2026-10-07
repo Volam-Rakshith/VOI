@@ -64,6 +64,7 @@ const onlineGame = await import('../src/lib/onlineGame.js')
 const onlineService = await import('../src/lib/onlineService.js')
 const runtimeConfig = await import('../src/lib/runtimeConfig.js')
 const supabaseLib = await import('../src/lib/supabase.js')
+const limits = await import('../src/data/constants.js')
 
 const SECRET = { word: { word: 'Umbrella', categoryId: 'everyday', categoryName: 'Everyday', difficulty: 'easy', decoy: 'Raincoat' } }
 /** The engine stores the payload unwrapped — this is the word players would guess. */
@@ -103,12 +104,20 @@ test('strong RNG is available in this runtime', () => {
   assert.ok(random.randomUint32() >= 0)
 })
 
-test('room codes avoid ambiguous characters', () => {
+test('room codes are six unambiguous characters', () => {
   for (let i = 0; i < 400; i += 1) {
     const code = random.generateRoomCode()
-    assert.equal(code.length, 4)
+    assert.equal(code.length, 6, `expected a six-character code, got ${code}`)
     assert.ok(!/[OIL01SZ25]/.test(code), `ambiguous character in ${code}`)
   }
+})
+
+test('the six-character code is what validation asks for', () => {
+  assert.equal(limits.LIMITS.ROOM_CODE_LENGTH, 6)
+  assert.equal(validate.validateRoomCode('A7KQMN').ok, true)
+  assert.equal(validate.validateRoomCode('a7kqmn').value, 'A7KQMN', 'case-insensitive')
+  assert.equal(validate.validateRoomCode('A7KQ').ok, false, 'a four-character code is no longer valid to type')
+  assert.match(validate.validateRoomCode('A7KQ').error, /6 characters/)
 })
 
 /* ================================================================== */
@@ -512,10 +521,10 @@ test('names are capped at the limit', () => {
 })
 
 test('room codes are normalised and validated', () => {
-  assert.equal(validate.validateRoomCode('a7kq').ok, true)
+  assert.equal(validate.validateRoomCode('a7kqmn').ok, true)
+  assert.equal(validate.validateRoomCode('A7KQMN').value, 'A7KQMN')
   assert.equal(validate.validateRoomCode('abc').ok, false)
-  assert.equal(validate.validateRoomCode('O1IL').ok, false)
-  assert.equal(validate.validateRoomCode('a7kq').value, 'A7KQ')
+  assert.equal(validate.validateRoomCode('a7kq').ok, false, 'four characters is too short now')
 })
 
 test('word and category validation', () => {
@@ -559,21 +568,77 @@ test('a decoy never equals the secret word', () => {
   }
 })
 
-test('a decoy always fits beside the word, never a stranger from another category', () => {
+test('a decoy always fits the word, never a stranger from another world', () => {
   /*
-   * The bug this guards: the imposter's cover word for "kitchen sink" came out
-   * as "backpack" — a word from a completely different world. A decoy now comes
-   * from the word's own category first.
+   * Two guarantees, in order:
+   *   1. a word with curated hints draws one of them (see data/hints.js);
+   *   2. anything else falls back to another word in its own category.
+   * The bug this guards: "Kitchen Sink" was once offered "Backpack".
    */
   const fresh = bank.defaultBank()
-  for (let i = 0; i < 300; i += 1) {
+  let sawHint = 0
+  let sawCategory = 0
+
+  for (let i = 0; i < 400; i += 1) {
     const pick = bank.pickWord(fresh, { categoryIds: ['random'], difficulty: 'mixed' })
     if (!pick.decoy) continue
+    const entry = fresh.categories.find((c) => c.id === pick.categoryId)?.words.find((w) => w.word === pick.word)
+    if (entry?.hints?.length) {
+      assert.ok(
+        entry.hints.includes(pick.decoy),
+        `"${pick.decoy}" is not one of the hints for "${pick.word}"`,
+      )
+      sawHint += 1
+      continue
+    }
     const sameCategory = fresh.categories
       .find((c) => c.id === pick.categoryId)
       .words.some((w) => w.word === pick.decoy)
     assert.ok(sameCategory, `"${pick.decoy}" does not belong with "${pick.word}" (${pick.categoryName})`)
+    sawCategory += 1
   }
+
+  assert.ok(sawHint > 300, `expected the curated hints to drive most decoys, saw ${sawHint}`)
+})
+
+test('every built-in word carries 3-5 curated hints of its own', () => {
+  const fresh = bank.defaultBank()
+  const problems = []
+  for (const category of fresh.categories) {
+    for (const entry of category.words) {
+      const hints = entry.hints || []
+      if (hints.length < 3 || hints.length > 5) problems.push(`${entry.word}: ${hints.length} hints`)
+      if (hints.some((h) => h.toLowerCase() === entry.word.toLowerCase())) problems.push(`${entry.word}: lists itself`)
+      if (new Set(hints.map((h) => h.toLowerCase())).size !== hints.length) problems.push(`${entry.word}: repeats a hint`)
+    }
+  }
+  assert.equal(problems.length, 0, problems.slice(0, 6).join(' | '))
+})
+
+test('a bank saved before hints existed picks them up on load', () => {
+  /* Phones already holding a word database must gain the curated hints without
+     losing a single word, and a hint the player wrote themselves must win. */
+  const legacy = {
+    version: 1,
+    categories: [
+      {
+        id: 'everyday',
+        name: 'Everyday',
+        builtin: true,
+        words: [
+          { word: 'Umbrella', difficulty: 'easy' },
+          { word: 'My Own Word', difficulty: 'medium', hints: ['Mine'] },
+        ],
+      },
+    ],
+  }
+  const upgraded = bank.upgradeBank(legacy)
+  assert.equal(upgraded.version, bank.BANK_VERSION)
+  const words = upgraded.categories[0].words
+  assert.equal(words.length, 2, 'no word is lost')
+  assert.ok(words[0].hints?.length >= 3, 'the built-in word gained curated hints')
+  assert.deepEqual(words[1].hints, ['Mine'], 'a hand-written hint list is left alone')
+  assert.equal(bank.upgradeBank(upgraded), upgraded, 'upgrading twice changes nothing')
 })
 
 test('a word with its own hints draws one of them, at random', () => {
@@ -687,7 +752,7 @@ test('category options expose counts plus Random', () => {
 group('ONLINE STATE MATH')
 
 const room = (over = {}) => ({
-  code: 'A7KQ',
+  code: 'A7KQMN',
   hostId: 'p1',
   status: 'playing',
   config: { winRule: 'classic', rounds: 2, turnSeconds: 30, imposterCount: 1, categoryLabel: 'Random', difficulty: 'mixed', categoryIds: ['random'] },
@@ -1259,6 +1324,54 @@ test('invalid values are never stored', () => {
   const result = runtimeConfig.saveStoredBackend({ url: 'https://abc.supabase.co', anonKey: 'nope' })
   assert.equal(result.ok, false)
   assert.equal(runtimeConfig.hasStoredBackend(), false, 'a rejected save must not persist')
+})
+
+test('a file published after launch is picked up by "Check again"', async () => {
+  /*
+   * The exact complaint from players: "it keeps asking for the URL".
+   * A device that was open before runtime-config.json was published must be
+   * able to pick it up WITHOUT a reload — that is what the Check again button
+   * on the waiting screen calls. A typo in the file must be explained, not
+   * silently ignored.
+   */
+  const realFetch = globalThis.fetch
+  try {
+    runtimeConfig.clearStoredBackend()
+    let published = '' // the shipped default: an all-empty file
+    globalThis.fetch = async () => ({ ok: true, text: async () => published })
+
+    const before = await runtimeConfig.ensureBackend()
+    assert.equal(before.source, 'none', 'an empty published file leaves the app unconfigured')
+
+    published = JSON.stringify({ supabaseUrl: 'https://published.supabase.co', supabaseAnonKey: ANON_KEY })
+    const found = await runtimeConfig.reloadRuntimeFile()
+    assert.equal(found, true, 'the re-read reports success')
+    const after = await runtimeConfig.ensureBackend()
+    assert.equal(after.source, 'file')
+    assert.equal(after.url, 'https://published.supabase.co')
+    assert.equal(after.anonKey, ANON_KEY)
+
+    // Fetched with a cache-buster, or GitHub Pages would serve the old copy.
+    let cacheBusted = false
+    globalThis.fetch = async (url, options) => {
+      cacheBusted = options?.cache === 'no-store' && /[?&]t=\d+/.test(String(url))
+      return { ok: true, text: async () => published }
+    }
+    await runtimeConfig.reloadRuntimeFile()
+    assert.equal(cacheBusted, true, 'the published file is re-fetched, never re-used from cache')
+
+    // A typo in the file is surfaced instead of being ignored in silence.
+    published = JSON.stringify({ supabaseUrl: 'https://published.supabase.co', anonKey: 'nope' })
+    await runtimeConfig.reloadRuntimeFile()
+    const issue = runtimeConfig.runtimeFileIssue()
+    assert.equal(issue.found, true)
+    assert.match(issue.error || '', /ignored/i)
+    assert.equal((await runtimeConfig.ensureBackend()).source, 'none')
+  } finally {
+    globalThis.fetch = realFetch
+    runtimeConfig.clearStoredBackend()
+    await runtimeConfig.reloadRuntimeFile()
+  }
 })
 
 test('status reporting never leaks a full key', () => {

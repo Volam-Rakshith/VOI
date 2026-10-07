@@ -88,12 +88,12 @@ export function uuid() {
 }
 
 /**
- * Room code generator — 4 characters from an unambiguous alphabet
+ * Room code generator — 6 characters from an unambiguous alphabet
  * (no O/0, I/1/L, S/5, Z/2). Case-insensitive at the API level.
  */
 export const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRTUVWXY34679'
 
-export function generateRoomCode(length = 4) {
+export function generateRoomCode(length = 6) {
   let code = ''
   for (let i = 0; i < length; i += 1) code += ROOM_ALPHABET[randomInt(ROOM_ALPHABET.length)]
   return code

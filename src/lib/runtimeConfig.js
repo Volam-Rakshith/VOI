@@ -208,6 +208,25 @@ function notify() {
 /** Currently-known problem with runtime-config.json, if any. */
 export const runtimeFileIssue = () => ({ found: fileFound, error: fileError })
 
+/**
+ * Forget what we know about runtime-config.json and read it again.
+ *
+ * GitHub Pages caches aggressively, so a device that was open before the file
+ * was published would otherwise keep seeing the old (empty) copy until a hard
+ * reload. Everything that consumes configuration is notified when this lands.
+ */
+export async function reloadRuntimeFile() {
+  fileAttempted = false
+  filePromise = null
+  fileConfig = null
+  fileError = null
+  fileFound = false
+  cached = null
+  const loaded = await loadRuntimeFile()
+  notify()
+  return Boolean(loaded || buildBackend.url)
+}
+
 export function subscribeToBackend(listener) {
   listeners.add(listener)
   return () => listeners.delete(listener)

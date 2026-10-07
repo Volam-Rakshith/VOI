@@ -7,7 +7,15 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { BRAND } from '../../data/constants.js'
 import { useSettings } from '../../context/SettingsContext.jsx'
-import { Logo } from '../ui/Logo.jsx'
+/*
+ * The mark only — <Logo> also renders the studio line and the IMPOSTER wordmark,
+ * and this screen prints both of those itself right below (the name used to
+ * appear twice, reading "IMPOSTER IMPOSTER").
+ */
+import { StudioMark } from '../ui/Logo.jsx'
+
+/** The name, split so each letter can be revealed on its own beat. */
+const NAME_LETTERS = BRAND.game.split('')
 
 export function SplashScreen({ onDone, duration = 1600 }) {
   const { motionOff } = useSettings()
@@ -36,7 +44,7 @@ export function SplashScreen({ onDone, duration = 1600 }) {
           animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: motionOff ? 0 : 0.85, ease: [0.16, 1, 0.3, 1] }}
         >
-          <Logo size="lg" />
+          <StudioMark size={58} />
         </motion.div>
 
         <motion.div
@@ -46,9 +54,55 @@ export function SplashScreen({ onDone, duration = 1600 }) {
           className="mt-6 space-y-2"
         >
           <p className="label text-[10px] text-cyan-200/80">{BRAND.studio}</p>
-          <h1 className={`font-display text-[clamp(2.4rem,13vw,4.6rem)] leading-none tracking-[.14em] text-neon ${phase >= 1 && !motionOff ? 'animate-flicker' : ''}`}>
-            {BRAND.game}
+          {/*
+            * The name is typed out one letter at a time — each letter drops in,
+            * unblurs and settles on its own beat, then the whole word takes the
+            * flicker. The h1 carries the readable label so assistive tech hears
+            * "IMPOSTER" rather than a list of letters.
+            */}
+          <h1
+            aria-label={BRAND.game}
+            className={`font-display text-[clamp(2.4rem,13vw,4.6rem)] leading-none tracking-[.14em] text-neon ${
+              phase >= 1 && !motionOff ? 'animate-flicker' : ''
+            }`}
+          >
+            {NAME_LETTERS.map((letter, index) => (
+              <motion.span
+                key={`${letter}-${index}`}
+                aria-hidden="true"
+                className="inline-block"
+                initial={motionOff ? false : { opacity: 0, y: 18, scale: 0.88, filter: 'blur(14px)' }}
+                animate={
+                  phase >= 1
+                    ? { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }
+                    : { opacity: 0, y: 18, scale: 0.88, filter: 'blur(14px)' }
+                }
+                transition={{
+                  duration: motionOff ? 0 : 0.46,
+                  delay: motionOff ? 0 : 0.075 * index,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
+              >
+                {letter === ' ' ? '\u00A0' : letter}
+              </motion.span>
+            ))}
           </h1>
+          {/* A hairline that draws itself under the name as the last letter lands. */}
+          <motion.span
+            aria-hidden="true"
+            className="mx-auto block h-[2px] rounded-full"
+            style={{
+              background:
+                'linear-gradient(90deg, rgba(34,211,238,0), #22d3ee, #a855f7, #ff2bd1, rgba(255,43,209,0))',
+            }}
+            initial={motionOff ? { width: '78%', opacity: 0.85 } : { width: 0, opacity: 0 }}
+            animate={phase >= 1 ? { width: '78%', opacity: 0.85 } : undefined}
+            transition={{
+              duration: motionOff ? 0 : 0.7,
+              delay: motionOff ? 0 : 0.075 * (NAME_LETTERS.length - 1) + 0.08,
+              ease: 'easeInOut',
+            }}
+          />
         </motion.div>
 
         <motion.div

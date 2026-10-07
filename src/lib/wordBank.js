@@ -6,6 +6,7 @@
 
 import { STORAGE_KEYS } from '../data/constants.js'
 import { DEFAULT_CATEGORIES, RANDOM_CATEGORY, cloneDefaultCategories } from '../data/words.js'
+import { BUILTIN_HINTS } from '../data/hints.js'
 import { randomInt, shuffle, uid } from '../utils/random.js'
 import { validateCategoryName, validateWord } from '../utils/validate.js'
 import { readJSON, writeJSON } from '../utils/storage.js'
@@ -17,9 +18,49 @@ const slugify = (name) =>
     .replace(/^-|-$/g, '')
     .slice(0, 32) || `cat-${uid('c').slice(-5)}`
 
+/**
+ * Bank format version.
+ *   1 → words stored as { word, difficulty }
+ *   2 → words may also carry `hints` (the imposter's cover words)
+ * A stored v1 bank is upgraded in place on load: built-in words that have no
+ * hints yet pick up the curated ones, while anything the player added or edited
+ * is left exactly as it is.
+ */
+export const BANK_VERSION = 2
+
 /** Fresh, uncorrupted default bank. */
 export function defaultBank() {
-  return { version: 1, categories: cloneDefaultCategories(), updatedAt: Date.now() }
+  return { version: BANK_VERSION, categories: cloneDefaultCategories(), updatedAt: Date.now() }
+}
+
+/**
+ * Bring a bank saved by an older version up to date.
+ *
+ * Only built-in words are touched, and only to ADD hints where none exist — a
+ * hint list the player wrote themselves always wins, and custom words/categories
+ * are never modified. Returns the same object when there is nothing to do.
+ */
+export function upgradeBank(bank) {
+  if (!bank || !Array.isArray(bank.categories)) return bank
+  if (Number(bank.version) >= BANK_VERSION) return bank
+  let changed = false
+  const categories = bank.categories.map((category) => {
+    if (!category?.builtin) return category
+    let categoryChanged = false
+    const words = (category.words || []).map((entry) => {
+      if (!entry?.word) return entry
+      if (Array.isArray(entry.hints) && entry.hints.length) return entry
+      const curated = BUILTIN_HINTS[entry.word]
+      if (!curated?.length) return entry
+      categoryChanged = true
+      return { ...entry, hints: [...curated] }
+    })
+    if (!categoryChanged) return category
+    changed = true
+    return { ...category, words }
+  })
+  if (!changed) return { ...bank, version: BANK_VERSION }
+  return { ...bank, version: BANK_VERSION, categories }
 }
 
 function sanitizeBank(raw) {
@@ -50,7 +91,11 @@ function sanitizeBank(raw) {
     categories.push({ id, name: nameCheck.value, builtin: Boolean(cat.builtin), words })
   })
   if (!categories.length) return defaultBank()
-  return { version: 1, categories, updatedAt: Number(raw.updatedAt) || Date.now() }
+  return {
+    version: Math.max(1, Number(raw.version) || 1),
+    categories,
+    updatedAt: Number(raw.updatedAt) || Date.now(),
+  }
 }
 
 /**
@@ -84,6 +129,11 @@ export function loadBank() {
     writeJSON(STORAGE_KEYS.wordBank, fresh)
     return fresh
   }
+  /* A bank from an older version (no cover words yet) is upgraded on the spot
+     and written back, so every device gets the curated hints once. */
+  const upgraded = upgradeBank(sanitizeBank(stored))
+  if (upgraded !== stored && Number(stored.version) < BANK_VERSION) writeJSON(STORAGE_KEYS.wordBank, upgraded)
+  return upgraded
   const safe = sanitizeBank(stored)
   return safe
 }
@@ -206,11 +256,11 @@ export function deleteWord(bank, { categoryId, index }) {
 }
 
 export function importBank(bank, payload) {
-  return sanitizeBank(payload) ?? bank
+  return upgradeBank(sanitizeBank(payload)) ?? bank
 }
 
 export function exportBank(bank) {
-  return JSON.stringify({ version: 1, categories: bank.categories, updatedAt: Date.now() }, null, 2)
+  return JSON.stringify({ version: BANK_VERSION, categories: bank.categories, updatedAt: Date.now() }, null, 2)
 }
 
 /* -------------------------------------------------------------------------- */

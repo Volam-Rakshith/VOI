@@ -8,7 +8,7 @@ export const BRAND = {
   game: 'IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.7',
+  version: '1.0.9',
 }
 
 export const LIMITS = {
@@ -19,7 +19,7 @@ export const LIMITS = {
   NAME_MIN: 1,
   WORD_MAX: 28,
   CATEGORY_NAME_MAX: 24,
-  ROOM_CODE_LENGTH: 4,
+  ROOM_CODE_LENGTH: 6,
 }
 
 /** Turn durations offered in setup (seconds). */

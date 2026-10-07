@@ -56,7 +56,7 @@ Both support the same two assignment styles:
   gets one guess at the crew's word first.
 - **Circular countdown ring** with escalating states — warning at 10 s, critical pulse at 5 s, time-up flare at 0.
 - **Dramatic reveals**: vote tallies animate bar by bar, the accused player's role lands with a burst, winners get confetti or a glitch-shake takeover.
-- **Online rooms** with 4-character codes from an unambiguous alphabet (`A7KQ`-style), live lobby, ready states, host controls, host migration, reconnection, refresh-safe seats and a synced shared timer.
+- **Online rooms** with 6-character codes from an unambiguous alphabet (`A7KQMN`-style — no O/0 or I/1 look-alikes), live lobby, ready states, host controls, host migration, reconnection, refresh-safe seats and a synced shared timer.
 - **BLACK BOX** — a hidden admin layer: 3 taps in the top-right corner of the home screen, a passphrase prompt, then a command-centre dashboard with system status, full word-database CRUD, category management, room management and session controls.
 - **Custom word engine** with 9 built-in categories (~150 words) across three difficulty tiers, plus import/export JSON, guarded reset-to-defaults and optional cloud sync.
 - **Accessibility & comfort**: semantic markup, keyboard navigation, visible focus rings, ARIA labels, 0–2 “theme intensity”, reduced-motion support (system + in-app), optional **haptics** (vibration on deal, reveal, voting, vote
@@ -96,9 +96,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 118 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
+| `npm run test:engine` | 122 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 120-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run test:ui` | 123-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -327,7 +327,7 @@ If your project has replication disabled entirely, enable it there.
 
 Rebuild (`npm run build`) or restart `npm run dev`, then:
 
-- **Host**: `ONLINE ROOM → Create room` → share the 4-character code.
+- **Host**: `ONLINE ROOM → Create room` → share the 6-character code.
 - **Everyone else**: `ONLINE ROOM → Join room` → name + code → ready up.
 - The host starts the game; each device receives only **its own** secret.
 
@@ -403,7 +403,7 @@ service worker from a previous deploy can hold a cached page.
 
 ### Why it works under `/repository-name/`
 
-- **Hash routing** (`#/local`, `#/lobby?room=A7KQ`). There is no history-based route to 404, so
+- **Hash routing** (`#/local`, `#/lobby?room=A7KQMN`). There is no history-based route to 404, so
   refreshing, deep-linking and the back button behave identically on a project page, a user page
   (`username.github.io`) and a custom domain.
 - **Relative asset paths** (`base: './'`), so `assets/index-*.js` resolves under any sub-path.
@@ -453,6 +453,11 @@ has several, the game draws **one at random** each time it is dealt, so the same
 differently on every replay. Leave the field empty and the imposter is offered another word **from the
 same category** instead, which keeps the bluff in the same world as the real word. Hints travel with
 the JSON export/import and with cloud word sync, so a shared database keeps them.
+
+Every **built-in** word (all 150) now ships with **five hand-written cover words** that fit its world,
+so a fresh install never has to fall back. Word databases saved by an earlier version pick these up
+automatically the next time the app opens — words and categories you wrote yourself are left alone,
+and your own cover words always win.
 
 ### Rotating the access phrase
 

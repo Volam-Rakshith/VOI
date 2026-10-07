@@ -13,7 +13,7 @@ export function OnlineGame({ onNavigate, onRoomReady }) {
   const toast = useToast()
 
   const renderSetup = useCallback(
-    ({ configured, backend, onConfigure, busy, lastSession, createRoom, joinRoom, rejoin }) => (
+    ({ configured, backend, onConfigure, onCheckConfig, busy, lastSession, createRoom, joinRoom, rejoin }) => (
       <ScreenShell>
         <ScreenHeader title="Online room" eyebrow="one device each" onBack={() => onNavigate(ROUTES.home)} />
         <div className="shell-narrow flex-1 space-y-4 pb-6">
@@ -23,6 +23,7 @@ export function OnlineGame({ onNavigate, onRoomReady }) {
                 configured={configured}
                 backend={backend}
                 onConfigure={onConfigure}
+                onCheckConfig={onCheckConfig}
                 busy={busy}
                 lastSession={lastSession}
                 onSubmit={async (payload) => {

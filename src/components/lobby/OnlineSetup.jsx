@@ -24,6 +24,7 @@ export function OnlineSetup({
   configured,
   backend = null,
   onConfigure = null,
+  onCheckConfig = null,
   busy = null,
   onSubmit,
   onQuickJoin = null,
@@ -36,6 +37,8 @@ export function OnlineSetup({
   const [name, setName] = useState(defaultName || lastSession?.name || '')
   const [code, setCode] = useState(lastSession?.code || '')
   const [errors, setErrors] = useState({})
+  const [checking, setChecking] = useState(false)
+  const [checkFailed, setCheckFailed] = useState(false)
   /*
    * Config for the room being created.
    *
@@ -61,28 +64,58 @@ export function OnlineSetup({
   const chaos = config.mode === 'chaos'
 
   if (!configured) {
+    /*
+     * Players never paste keys.
+     *
+     * The room server is published ONCE by whoever runs the game, in a single
+     * file next to index.html — every visitor picks it up automatically. A
+     * player who arrives early (or before it has been published) waits and
+     * re-checks; only the organiser is ever shown the connect form.
+     */
     return (
       <div className="space-y-4">
         <ErrorState
-          title="Connect a backend to play online"
-          message="Online rooms need a free Supabase project for sync. Paste two public values once — no rebuild, no redeploy, and nothing to edit in code. Pass & play works right now, with nothing to configure."
+          title="Waiting for the room server"
+          message="The room server is published once by the organiser, for everyone — you never have to paste anything. If it is not ready yet, check again in a moment. Pass & play works right now, with nothing at all to configure."
           tone="info"
           action={
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="primary" size="sm" onClick={onConfigure}>
-                Connect a backend
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={checking || busy === 'connect'}
+                onClick={async () => {
+                  setChecking(true)
+                  const ok = await Promise.resolve(onCheckConfig ? onCheckConfig() : false)
+                  setChecking(false)
+                  setCheckFailed(!ok)
+                }}
+              >
+                {checking ? 'Checking…' : 'Check again'}
               </Button>
-              <Badge tone="cyan">takes ~2 minutes</Badge>
+              <Button variant="quiet" size="sm" onClick={onConfigure}>
+                I'm the organiser
+              </Button>
             </div>
           }
         />
-        <InlineNotice tone="info">
-          You will need your <strong className="font-bold">Project URL</strong> and{' '}
-          <strong className="font-bold">anon key</strong> from Supabase → Project Settings → API, plus{' '}
-          <code className="font-mono text-[11.5px]">supabase/schema.sql</code> run once in the SQL editor. Alternatively,
-          edit <code className="font-mono text-[11.5px]">runtime-config.json</code> next to index.html, or set the two
-          build variables — every path is documented in the README.
-        </InlineNotice>
+        {checkFailed ? (
+          <InlineNotice tone="warn">
+            Still not connected — the room server has not been published yet. Ask the organiser to finish the one-time
+            setup, then tap <strong className="font-bold">Check again</strong>.
+          </InlineNotice>
+        ) : null}
+        {onConfigure ? (
+          <InlineNotice tone="info">
+            <strong className="font-bold">Organiser?</strong> Connect once from this device — paste the{' '}
+            <strong className="font-bold">Project URL</strong> and <strong className="font-bold">anon key</strong> (no
+            rebuild, no redeploy) — then publish{' '}
+            <code className="font-mono text-[11.5px]">runtime-config.json</code> next to{' '}
+            <code className="font-mono text-[11.5px]">index.html</code> (the panel copies or downloads the finished
+            file) so every player joins with nothing to paste. Also run{' '}
+            <code className="font-mono text-[11.5px]">supabase/schema.sql</code> once in the Supabase SQL editor.
+          </InlineNotice>
+        ) : null}
       </div>
     )
   }
@@ -172,7 +205,7 @@ export function OnlineSetup({
           />
           <Field
             label="room code"
-            placeholder="A7KQ"
+            placeholder="A7KQMN"
             value={code}
             inputMode="text"
             autoCapitalize="characters"

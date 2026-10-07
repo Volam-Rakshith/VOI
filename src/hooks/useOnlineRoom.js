@@ -38,6 +38,7 @@ import {
 import { assignOpeningRoles, assignRolesFor, isChaosMode, isChaosRound, scheduleNextChaosRound } from '../lib/gameEngine.js'
 import { buildClueOrder, computeResult, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, turnPlayer, voteProgress } from '../lib/onlineGame.js'
 import { normalizeRoom } from '../lib/onlineService.js'
+import { reloadRuntimeFile } from '../lib/runtimeConfig.js'
 import { readJSON, remove, writeJSON } from '../utils/storage.js'
 
 /**
@@ -90,6 +91,19 @@ export function useOnlineRoom(bank) {
 
   const recheckBackend = useCallback(async () => {
     await refreshConfiguration()
+    const next = backendStatus()
+    setBackend(next)
+    return next.configured
+  }, [])
+
+  /**
+   * "Check again" on the not-configured screen: re-reads the published
+   * runtime-config.json from scratch (ignoring any cached copy) and applies it
+   * immediately. This is how a device gets connected without pasting anything —
+   * the values only have to exist in that one published file.
+   */
+  const recheckPublishedConfig = useCallback(async () => {
+    await reloadRuntimeFile()
     const next = backendStatus()
     setBackend(next)
     return next.configured
@@ -972,6 +986,7 @@ export function useOnlineRoom(bank) {
       configureBackend,
       testBackendConfig,
       recheckBackend,
+      checkPublishedConfig: recheckPublishedConfig,
     },
   }
 }

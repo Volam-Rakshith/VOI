@@ -86,7 +86,7 @@ export function Home({ onNavigate, onSecretAccess }) {
     {
       id: 'online',
       label: 'ONLINE ROOM',
-      caption: onlineReady ? 'Each player on their own phone' : 'Create or join with a 4-letter code',
+      caption: onlineReady ? 'Each player on their own phone' : 'Create or join with a 6-letter code',
       icon: 'bolt',
       variant: 'default',
       route: ROUTES.online,

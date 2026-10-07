@@ -32,7 +32,7 @@ export function OnlineSession({ renderSetup, onExit }) {
       open={configureOpen}
       onClose={() => setConfigureOpen(false)}
       title="Connect a backend"
-      subtitle="Online rooms run on your own free Supabase project. Paste the two public values once — stored on this device, applied instantly."
+      subtitle="Online rooms run on your own free Supabase project. Connect once, then publish the one-file config — every player then joins with nothing to paste."
       size="lg"
     >
       <BackendPanel
@@ -54,6 +54,7 @@ export function OnlineSession({ renderSetup, onExit }) {
           configured: online.configured,
           backend: online.backend,
           onConfigure: () => setConfigureOpen(true),
+          onCheckConfig: online.actions.checkPublishedConfig,
           busy: online.busy,
           lastSession,
           createRoom: (name, config) => online.actions.createRoom(name, config),
