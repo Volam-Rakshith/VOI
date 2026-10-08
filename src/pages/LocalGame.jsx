@@ -10,6 +10,7 @@ import { GAME_PHASES, ROUTES } from '../data/constants.js'
 import { useWordBank } from '../context/WordBankContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { useLocalGame } from '../hooks/useLocalGame.js'
+import { RefreshWarning } from '../components/game/RefreshWarning.jsx'
 import { haptic } from '../lib/haptics.js'
 import { briefLine } from '../lib/gameEngine.js'
 import { SetupScreen } from '../components/game/SetupScreen.jsx'
@@ -184,6 +185,8 @@ export function LocalGame({ onNavigate }) {
 
   return (
     <ScreenShell withFooter={false}>
+      {/* Refreshed mid-game? The table was picked back up — say so, loudly. */}
+      <RefreshWarning active={Boolean(state)} mode="local" onLeave={exitNow} />
       <ScreenHeader
         title={`Round ${state.round}`}
         eyebrow={`pass & play · ${view?.alive.length ?? 0} playing`}

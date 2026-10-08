@@ -644,6 +644,55 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
 }
 
 /* ------------------------------------------------------------------ */
+/* 7b. Refresh warning — a reload mid-game must never silently wipe it  */
+/* ------------------------------------------------------------------ */
+/* The round section above leaves a fresh game running. A browser reload
+   cannot be faked, so it is simulated the way the app sees it: the marker the
+   unload handlers leave behind, plus a remount of the page (home → local).  */
+{
+  const mark = () =>
+    window.sessionStorage.setItem('vrdev.imposter.reload.v1', JSON.stringify({ mode: 'local', at: Date.now() }))
+  const remount = async () => {
+    await navigate('home')
+    await wait(280)
+    await navigate('local')
+    await wait(760)
+  }
+
+  mark()
+  await remount()
+  const warned = /HUGE WARNING/i.test(text()) && /REFRESHING RESETS/i.test(text())
+  record('a reload mid-game raises the huge refresh warning', warned, text().replace(/\s+/g, ' ').slice(0, 190))
+  record(
+    'the warning offers both ways out',
+    Boolean(buttonMatching(/CONTINUE GAME/i)) && Boolean(buttonMatching(/LEAVE/i)),
+  )
+
+  const kept = await clickMatching(/CONTINUE GAME/i, 700)
+  await wait(420)
+  record(
+    'continue game keeps the table where it was',
+    kept &&
+      !/HUGE WARNING/i.test(text()) &&
+      /TAP TO REVEAL|pass the device to|Hand to next player|Everyone is ready|Start round \d/i.test(text()),
+    text().replace(/\s+/g, ' ').slice(0, 190),
+  )
+
+  // The other option really does end it — and forgets the saved table.
+  mark()
+  await remount()
+  const leaving = await clickMatching(/LEAVE \[REFRESH\]/, 800)
+  await wait(520)
+  record('leave [refresh] ends the game and returns to the menu', leaving && /PLAY LOCAL/i.test(text()), text().slice(0, 160))
+  record(
+    'leaving clears the saved table',
+    window.sessionStorage.getItem('vrdev.imposter.localgame.v1') === null,
+    `snapshot: ${window.sessionStorage.getItem('vrdev.imposter.localgame.v1')}`,
+  )
+  record('and clears the reload marker', window.sessionStorage.getItem('vrdev.imposter.reload.v1') === null)
+}
+
+/* ------------------------------------------------------------------ */
 /* 8. Boot failsafe — the "permanent LOADING screen" guard             */
 /* ------------------------------------------------------------------ */
 /* A host that serves the source tree instead of dist/ delivers main.jsx

@@ -97,9 +97,10 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 131 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
+| `npm run test:engine` | 138 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 130-check UI smoke test: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run test:ui` | 136-check UI smoke test
+| `npm run test:live` | **22 live multiplayer join cycles** against your real Supabase project — creates rooms, joins 3–8 players, verifies rejoin, bad codes and closing, checks realtime delivery, then closes every room it made. Requires network access and your published config |: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -460,6 +461,32 @@ so a fresh install never has to fall back. Word databases saved by an earlier ve
 automatically the next time the app opens — words and categories you wrote yourself are left alone,
 and your own cover words always win.
 
+### The published config ships WITH the app
+
+`public/runtime-config.json` now carries the real (public) project URL and publishable key, so it is
+copied into `dist/` and `docs/` on every build and lands next to `index.html` on every deploy. **Updating
+the app can never wipe it again** — earlier packages shipped that file empty, and copying one over the
+repo silently erased the published values (which is exactly why players saw "waiting for the room
+server"). A test now fails the build if that file is ever blanked.
+
+Extra safety net: `node scripts/live-check.mjs` boots the real app with the shipped file and reports
+whether a fresh device connects; add `--live` to test the copy GitHub Pages is *currently* serving.
+
+### Refreshing mid-game is survivable
+
+A reload used to throw a pass & play table away instantly. Now:
+
+- **Before it happens**, while a game is running, the app registers the browser's own *"Leave site?"* prompt — on
+  desktop and most Android phones a refresh is caught before it does anything.
+- **If the reload goes through anyway** (a phone's pull-to-refresh, or iOS which ignores that prompt), the tab
+  remembers it was reloaded and the table is restored from per-tab `sessionStorage` — an open secret card is closed
+  again and the countdown is paused rather than eaten.
+- **On the way back** the app shows a full-screen warning — **!! HUGE WARNING !! REFRESHING RESETS CURRENT GAME** —
+  with two ways out: **CONTINUE GAME** (keep the table exactly where it was) or **LEAVE [REFRESH]** (end it and go
+  back to the menu). Online rooms get the same warning, and *LEAVE* quits the room for real.
+
+The snapshot lives in `sessionStorage`, so it dies with the tab: closing the browser still ends the table.
+
 ### How a game ends
 
 Two ways, and both are quick:
@@ -675,4 +702,3 @@ Run `supabase/schema.sql` once in the project and online rooms are live.
 - Supabase is optional and free-tier friendly; no paid services are required anywhere.
 
 **VOTE OUT IMPOSTER — Crafted with passion by VR DEVELOPMENTS.**
-"test" 

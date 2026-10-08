@@ -1,6 +1,5 @@
 {
-  "_comment": "Runtime backend configuration. Edit the two values and redeploy ONLY this file (or set them in the app: Online Room -> Connect a backend). Empty values fall back to build-time VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.",
-
-  "supabaseUrl": "",
-  "supabaseAnonKey": ""
+  "_comment": "Runtime backend configuration for VOTE OUT IMPOSTER. These are PUBLIC values (project URL + publishable/anon key) and are safe to ship. Every visitor reads this file at run time — nobody is ever asked to paste a key. Updating the app never needs to touch this file again.",
+  "supabaseUrl": "https://uepgrjiktejmvyupvzlo.supabase.co",
+  "supabaseAnonKey": "sb_publishable_s2Aq-KaMWo9EaASjbvPZOg_rVy6McSM"
 }

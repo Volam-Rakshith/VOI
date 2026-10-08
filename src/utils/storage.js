@@ -65,6 +65,60 @@ export function removeMany(keys) {
   keys.forEach(remove)
 }
 
+/* -------------------------------------------------------------------------- */
+/* Per-tab storage (sessionStorage)                                           */
+/*                                                                            */
+/* Survives a refresh, dies with the tab — exactly what an in-progress game    */
+/* needs: a phone reload can pick the table back up, but closing the tab ends  */
+/* it. Falls back to memory whenever storage is unavailable (private mode).    */
+/* -------------------------------------------------------------------------- */
+
+const sessionMemory = new Map()
+
+function sessionArea() {
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) return window.sessionStorage
+  } catch {
+    /* storage blocked */
+  }
+  return null
+}
+
+export function readSession(key, fallback = null) {
+  try {
+    const area = sessionArea()
+    const raw = area ? area.getItem(key) : sessionMemory.get(key)
+    if (raw === null || raw === undefined) return fallback
+    const parsed = JSON.parse(raw)
+    return parsed === null ? fallback : parsed
+  } catch {
+    return fallback
+  }
+}
+
+export function writeSession(key, value) {
+  const raw = JSON.stringify(value)
+  try {
+    const area = sessionArea()
+    if (area) area.setItem(key, raw)
+    else sessionMemory.set(key, raw)
+    return true
+  } catch {
+    sessionMemory.set(key, raw)
+    return false
+  }
+}
+
+export function removeSession(key) {
+  try {
+    const area = sessionArea()
+    if (area) area.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+  sessionMemory.delete(key)
+}
+
 /** Namespaced helper for a single logical store. */
 export function createStore(prefix) {
   return {

@@ -20,6 +20,7 @@ import {
   winConditionText,
 } from '../lib/gameEngine.js'
 import { readJSON, writeJSON } from '../utils/storage.js'
+import { clearGameSnapshot, loadGameSnapshot, saveGameSnapshot } from '../lib/gameSnapshot.js'
 import { validateGameConfig, validateRoster } from '../utils/validate.js'
 import { DEFAULT_CONFIG } from '../data/defaults.js'
 
@@ -35,7 +36,12 @@ export function localGameReducer(state, action) {
 }
 
 export function useLocalGame(bank) {
-  const [state, dispatch] = useReducer(localGameReducer, null)
+  /*
+   * The table is restored from this tab's snapshot, so a refresh (or an
+   * accidental back-swipe that reloads the page) no longer wipes it. The
+   * warning that explains this is RefreshWarning, driven by refreshGuard.
+   */
+  const [state, dispatch] = useReducer(localGameReducer, null, () => loadGameSnapshot())
   const [error, setError] = useState(null)
   const lastTick = useRef(Date.now())
   /** Words this table has already seen, newest last — replays avoid them. */
@@ -56,6 +62,11 @@ export function useLocalGame(bank) {
   /* ------------------------------------------------------------------ */
   /* Countdown — wall-clock based so throttled tabs stay accurate        */
   /* ------------------------------------------------------------------ */
+  /* Mirror the table into this tab as it changes — that is what survives a refresh. */
+  useEffect(() => {
+    saveGameSnapshot(state)
+  }, [state])
+
   useEffect(() => {
     if (!state?.timer?.running) return () => {}
     lastTick.current = Date.now()
@@ -121,6 +132,7 @@ export function useLocalGame(bank) {
       },
       quit: () => {
         setError(null)
+        clearGameSnapshot()
         dispatch({ type: '__RESET__' })
       },
     }),

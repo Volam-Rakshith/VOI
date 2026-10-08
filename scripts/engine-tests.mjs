@@ -65,6 +65,9 @@ const onlineService = await import('../src/lib/onlineService.js')
 const runtimeConfig = await import('../src/lib/runtimeConfig.js')
 const supabaseLib = await import('../src/lib/supabase.js')
 const limits = await import('../src/data/constants.js')
+const snapshot = await import('../src/lib/gameSnapshot.js')
+const refreshGuard = await import('../src/lib/refreshGuard.js')
+const sessionStore = await import('../src/utils/storage.js')
 
 const SECRET = { word: { word: 'Umbrella', categoryId: 'everyday', categoryName: 'Everyday', difficulty: 'easy', decoy: 'Raincoat' } }
 /** The engine stores the payload unwrapped — this is the word players would guess. */
@@ -1076,6 +1079,91 @@ test('the public result carries the outcome, and never a role for a living playe
   assert.equal(onlineGame.publicResult({ round: 3, eliminatedId: null, wasImposter: false, tie: true }).role, null)
 })
 
+test('a refresh mid-game is noticed, and the table comes back with it', () => {
+  /*
+   * The refresh flow: a game is running, the page unloads, the marker + the
+   * per-tab snapshot survive, and the next load can offer CONTINUE GAME.
+   */
+  refreshGuard.clearRefreshGuard()
+  snapshot.clearGameSnapshot()
+  assert.equal(refreshGuard.reloadHappened(), null, 'a fresh tab has nothing to warn about')
+  assert.equal(snapshot.loadGameSnapshot(), null, 'and no table to restore')
+
+  const game = engine.createGame(config(), names(6), SECRET)
+  refreshGuard.armRefreshGuard('local')
+  snapshot.saveGameSnapshot(game)
+
+  const marker = refreshGuard.reloadHappened()
+  assert.equal(marker.mode, 'local', 'the marker remembers where it happened')
+  assert.ok(typeof marker.at === 'number')
+
+  const restored = snapshot.loadGameSnapshot()
+  assert.equal(restored.round, game.round)
+  assert.equal(restored.players.length, 6)
+  assert.equal(restored.secret.word, game.secret.word, 'the table keeps its word')
+  assert.deepEqual(
+    restored.players.map((p) => p.role),
+    game.players.map((p) => p.role),
+    'and its roles',
+  )
+
+  // Leaving clears both, so the next visit starts clean.
+  refreshGuard.clearRefreshGuard()
+  snapshot.clearGameSnapshot()
+  assert.equal(refreshGuard.reloadHappened(), null)
+  assert.equal(snapshot.loadGameSnapshot(), null)
+})
+
+test('a restored table never returns pointing at an open card or a running clock', () => {
+  let game = engine.createGame(config(), names(4), SECRET)
+  game = engine.revealCard(game) // a secret card is open
+  const advanced = engine.startRound(engine.hideCard(game))
+  const running = { ...advanced, timer: { ...advanced.timer, running: true, secondsLeft: 17 } }
+
+  snapshot.saveGameSnapshot(running)
+  const restored = snapshot.loadGameSnapshot()
+  assert.equal(restored.cardVisible, false, 'nothing is left on screen to be read by the next player')
+  assert.equal(restored.timer.running, false, 'the countdown is paused, not eating a turn')
+  assert.equal(restored.timer.secondsLeft, 17, 'and it resumes from where it stopped')
+  snapshot.clearGameSnapshot()
+})
+
+test('an open secret card is closed on the way back', () => {
+  let game = engine.createGame(config(), names(4), SECRET)
+  game = engine.revealCard(game)
+  assert.equal(game.phase, 'reveal')
+  snapshot.saveGameSnapshot(game)
+  const restored = snapshot.loadGameSnapshot()
+  assert.equal(restored.phase, 'handoff', 'the hand-off screen again, so the player can re-reveal')
+  snapshot.clearGameSnapshot()
+})
+
+test('a junk snapshot is thrown away, never half-restored', () => {
+  const junk = [
+    null,
+    {},
+    { v: 99, state: { players: [{}, {}], config: {}, phase: 'handoff', secret: { word: 'x' } } },
+    { v: 1, state: { players: [], config: {}, phase: 'handoff', secret: { word: 'x' } } },
+    { v: 1, state: { players: [{}, {}], config: {}, phase: 'not-a-phase', secret: { word: 'x' } } },
+    { v: 1, state: { players: [{}, {}], config: {}, phase: 'handoff', secret: {} } },
+  ]
+  for (const value of junk) {
+    /* written raw, bypassing saveGameSnapshot, so load() has to defend itself */
+    sessionStore.writeSession(limits.STORAGE_KEYS.localGame, value)
+    assert.equal(snapshot.loadGameSnapshot(), null, `junk survived: ${JSON.stringify(value)}`)
+  }
+  snapshot.clearGameSnapshot()
+})
+
+test('saving nothing clears the snapshot (quit really quits)', () => {
+  const game = engine.createGame(config(), names(4), SECRET)
+  snapshot.saveGameSnapshot(game)
+  assert.ok(snapshot.loadGameSnapshot())
+  snapshot.saveGameSnapshot(null)
+  assert.equal(snapshot.loadGameSnapshot(), null)
+  sessionStore.removeSession(limits.STORAGE_KEYS.localGame)
+})
+
 group('ONLINE SERVICE SURFACE')
 
 test('an unconfigured build never pretends to be online', () => {
@@ -1501,6 +1589,61 @@ test('invalid values are never stored', () => {
   assert.equal(runtimeConfig.hasStoredBackend(), false, 'a rejected save must not persist')
 })
 
+test('the shipped runtime-config.json always carries working public values', () => {
+  /*
+   * THE disaster this guards against: earlier packages shipped this file EMPTY,
+   * so copying an update over the repo silently wiped the published values —
+   * every player then saw "waiting for the room server" and the organiser had
+   * no idea why. It now ships with the real (public) values, and this test
+   * fails loudly if it is ever blanked again.
+   */
+  const raw = readFileSync(new URL('../public/runtime-config.json', import.meta.url), 'utf8')
+  const parsed = JSON.parse(raw)
+  assert.ok(parsed._comment, 'the file explains itself to whoever opens it')
+  assert.ok(String(parsed.supabaseUrl || '').trim(), 'the project URL must ship filled in')
+  assert.ok(String(parsed.supabaseAnonKey || '').trim(), 'the publishable key must ship filled in')
+  const result = runtimeConfig.validateBackendConfig({ url: parsed.supabaseUrl, anonKey: parsed.supabaseAnonKey })
+  assert.equal(result.ok, true, `the shipped values must validate: ${result.error || ''}`)
+  assert.match(result.value.url, /^https:\/\/[a-z0-9-]+\.supabase\.co$/i, 'and normalise to a project API URL')
+  assert.ok(!/service_role/.test(parsed.supabaseAnonKey), 'a service-role key must never ship')
+})
+
+test('a deliberate error keeps its code through the retry wrapper', () => {
+  /*
+   * Found by the 22-cycle live multiplayer probe: a join with a room code that
+   * does not exist surfaced as "Something went wrong talking to the room
+   * server" because mutateRoom's catch re-classified a deliberate NOT_FOUND by
+   * its message text and returned UNKNOWN. The code must survive.
+   */
+  const notFound = Object.assign(new Error('Room not found'), { code: 'NOT_FOUND' })
+  const classified = onlineService.classifyError(notFound)
+  assert.equal(classified.code, 'NOT_FOUND', 'a known code must not be flattened')
+  assert.match(onlineService.friendlyRoomError(classified), /closed or the code is wrong/i)
+
+  // A closed room is a different, equally specific message.
+  assert.match(
+    onlineService.friendlyRoomError(Object.assign(new Error('x'), { code: 'TERMINATED' })),
+    /host closed this room/i,
+  )
+
+  // A mistyped invite link: the validation copy is surfaced, not swallowed.
+  assert.match(
+    onlineService.friendlyRoomError(Object.assign(new Error('That code contains a character we never use. Check it again.'), { code: 'INVALID_CODE' })),
+    /character we never use/i,
+  )
+  assert.match(
+    onlineService.friendlyRoomError(Object.assign(new Error('Pick a name first.'), { code: 'INVALID_NAME' })),
+    /pick a name first/i,
+  )
+
+  // Anything genuinely unknown still degrades to the generic line.
+  assert.equal(onlineService.classifyError(new Error('kaboom')).code, 'UNKNOWN')
+  assert.match(onlineService.friendlyRoomError(new Error('kaboom')), /something went wrong/i)
+
+  // A bare network failure is still recognised as one.
+  assert.equal(onlineService.classifyError(new Error('Failed to fetch')).code, 'NETWORK')
+})
+
 test('the published file reaches every status check (the "it still asks for keys" bug)', async () => {
   /*
    * Two failures lived here.
@@ -1797,7 +1940,7 @@ test('a deleted room tells the watchers the host closed it', async () => {
   const handler = service.slice(service.indexOf("'postgres_changes'"), service.indexOf("'postgres_changes'") + 900)
   assert.ok(handler.includes("payload.eventType === 'DELETE'"), 'the DELETE event is handled')
   assert.ok(/onStatus\?\.\('terminated'\)/.test(handler), 'and reported as a closed room')
-  assert.ok(service.includes('That room is closed'), 'the copy says the room is closed, not "not found"')
+  assert.ok(service.includes('closed or the code is wrong'), 'the copy names both causes, not a bare "not found"')
 })
 
 test('the create-room form can actually change imposters and turn length', async () => {

@@ -11,6 +11,7 @@ import { BackendPanel } from './BackendPanel.jsx'
 import { useWordBank } from '../../context/WordBankContext.jsx'
 import { useToast } from '../../context/ToastContext.jsx'
 import { LobbyView } from './LobbyView.jsx'
+import { RefreshWarning } from '../game/RefreshWarning.jsx'
 import { OnlineGamePhases } from './OnlineGamePhases.jsx'
 import { ROOM_STATUS, STORAGE_KEYS } from '../../data/constants.js'
 import { readJSON } from '../../utils/storage.js'
@@ -26,6 +27,22 @@ export function OnlineSession({ renderSetup, onExit }) {
   useEffect(() => {
     if (online.connection.state === 'error' && online.connection.error) toast.error(online.connection.error)
   }, [online.connection.state, online.connection.error, toast])
+
+  /*
+   * A phone refresh mid-round used to drop the seat without warning. The room
+   * and the player's seat are both restored, and this asks whether to carry on
+   * or leave the table.
+   */
+  const refreshWarning = (
+    <RefreshWarning
+      active={Boolean(online.isInRoom && online.room?.game)}
+      mode="online"
+      onLeave={async () => {
+        await online.actions.leave?.()
+        onExit?.()
+      }}
+    />
+  )
 
   const configureModal = (
     <Modal
@@ -50,6 +67,7 @@ export function OnlineSession({ renderSetup, onExit }) {
   if (!online.isInRoom) {
     return (
       <>
+        {refreshWarning}
         {renderSetup({
           configured: online.configured,
           backend: online.backend,
@@ -74,6 +92,7 @@ export function OnlineSession({ renderSetup, onExit }) {
 
   return (
     <>
+      {refreshWarning}
       {inLobby ? (
         <LobbyView online={online} onExit={onExit} />
       ) : (

@@ -124,8 +124,30 @@ async function requireClient() {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Map low-level transport failures onto friendly, user-facing codes. */
-function classifyError(error) {
+/**
+ * Codes this module raises itself. A deliberate `fail('NOT_FOUND', …)` must
+ * survive classification — it used to be re-derived from the message text and
+ * flattened into UNKNOWN, which is why a mistyped room code produced
+ * "Something went wrong talking to the room server" instead of naming it.
+ */
+const KNOWN_ERROR_CODES = new Set([
+  'NOT_CONFIGURED',
+  'NOT_FOUND',
+  'FULL',
+  'STARTED',
+  'EXPIRED',
+  'TERMINATED',
+  'SCHEMA_MISSING',
+  'NETWORK',
+  'DUPLICATE_CODE',
+  'FORBIDDEN',
+  'INVALID_CODE',
+  'INVALID_NAME',
+])
+
+export function classifyError(error) {
   const message = String(error?.message || error || '')
+  if (error?.code && KNOWN_ERROR_CODES.has(error.code)) return error
   if (error?.code === 'NOT_CONFIGURED') return error
   const wrapped = new Error(message)
   if (/does not exist|relation|schema cache|function .* not found|42P01|PGRST202/i.test(message)) wrapped.code = 'SCHEMA_MISSING'
@@ -150,9 +172,15 @@ export const friendlyRoomError = (error) => {
     case 'FORBIDDEN':
       return 'The database rejected that request. Re-check your Supabase policies.'
     case 'NOT_FOUND':
-      /* A closed room is deleted, so "not found" usually means the host has
-         finished with it. Say that plainly instead of implying a typo. */
-      return 'That room is closed — the host has finished with it. Ask them to open a new one, or create your own.'
+      /* Either the code was mistyped, or the room was closed (closing deletes
+         the row). Say both, so the player knows what to try next. */
+      return 'That room is closed or the code is wrong — check it with the host, or open your own room.'
+    case 'INVALID_CODE':
+    case 'INVALID_NAME':
+      /* Validation already wrote precise copy ("That code contains a character
+         we never use.") — surface it instead of the generic line. A mistyped
+         invite link lands here, so it has to say what is wrong. */
+      return error.message || 'Check the code and name, then try again.'
     case 'FULL':
       return 'THIS ROOM IS FULL'
     case 'STARTED':
