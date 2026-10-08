@@ -31,15 +31,15 @@ Local pass & play works offline. Online rooms are optional and run on a free Sup
 
 ### Two ways to play
 
-| Mode | Devices | Players | Needs internet |
-| --- | --- | --- | --- |
-| **Pass & Play** | One phone/tablet passed around | 2–20 | No — fully offline |
-| **Online Room** | One device per player | 3–20 | Yes (Supabase) |
+| Mode            | Devices                        | Players | Needs internet     |
+| --------------- | ------------------------------ | ------- | ------------------ |
+| **Pass & Play** | One phone/tablet passed around | 2–20    | No — fully offline |
+| **Online Room** | One device per player          | 3–20    | Yes (Supabase)     |
 
 Both support the same two assignment styles:
 
 - **Normal** — a fixed number of imposters, always a strict minority, chosen once when the game starts.
-- **Chaos** — *anyone can be an imposter.* Every round re-rolls the roles from scratch, so a round can
+- **Chaos** — _anyone can be an imposter._ Every round re-rolls the roles from scratch, so a round can
   have one imposter, several, or literally every player. Nothing is fixed and nobody is guaranteed to
   be crew. Replaying keeps the same players and settings but rolls a **brand-new** assignment — the
   previous one is never reused. Normal Mode is untouched by any of this.
@@ -91,18 +91,18 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 
 ### Scripts
 
-| Script | What it does |
-| --- | --- |
-| `npm run dev` | Vite dev server on `0.0.0.0:5173` (LAN + tunnel friendly) |
-| `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
-| `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
-| `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 150 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
-| `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
-| `npm run test:ui` | 136-check UI smoke test
-| `npm run test:live` | **22 live multiplayer join cycles + 3 no-show rescue drills** against your real Supabase project — creates rooms, joins 3–8 players, verifies rejoin, bad codes and closing, checks realtime delivery, proves a kick re-opens a blocked gate and that a quiet host’s room falls to an online player, then closes every room it made. Requires network access and your published config |: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
-| `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
-| `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
+| Script                                             | What it does                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                                      | Vite dev server on `0.0.0.0:5173` (LAN + tunnel friendly)                                                                                                                                                                                                                                                                                                                              |
+| `npm run build`                                    | Production build → `dist/` (+ `404.html`, `.nojekyll`)                                                                                                                                                                                                                                                                                                                                 |
+| `npm run preview`                                  | Serves the built `dist/` on `0.0.0.0:4173`                                                                                                                                                                                                                                                                                                                                             |
+| `npm run test`                                     | Everything below, in one run                                                                                                                                                                                                                                                                                                                                                           |
+| `npm run test:engine`                              | 158 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery)                                                                                                                     |
+| `npm run doctor`                                   | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan                                                                                                                                                                                                                                                                                 |
+| `npm run test:ui`                                  | 143-check UI smoke test                                                                                                                                                                                                                                                                                                                                                                |
+| `npm run test:live`                                | **23 live multiplayer join cycles + 3 no-show rescue drills** against your real Supabase project — creates rooms (including a sponsor-gated custom code: pinned exactly, refused when taken), joins 3–8 players, verifies rejoin, bad codes and closing, checks realtime delivery, proves a kick re-opens a blocked gate and that a quiet host’s room falls to an online player, then closes every room it made. Requires network access and your published config | : mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run deploy`                                   | Builds and pushes `dist/` to a `gh-pages` branch                                                                                                                                                                                                                                                                                                                                       |
+| `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest)                                                                                                                                                                                                                                                                                                                                     |
 
 ---
 
@@ -168,14 +168,14 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 
 Every rule lives in `src/lib/gameEngine.js` as a pure function — `createGame`, `assignRoles`,
 `startRound`, `castVote`, `calculateVotes`, `determineWinner`, `resetGame` — so the UI never
-contains game logic, and the same rules drive local *and* online play.
+contains game logic, and the same rules drive local _and_ online play.
 
 ---
 
 ## Game rules
 
 1. **Everyone gets a secret card.** The crew all receive the same word; the imposter receives
-   `YOU ARE THE IMPOSTER` plus an optional *cover word* to bluff with.
+   `YOU ARE THE IMPOSTER` plus an optional _cover word_ to bluff with.
 2. **One clue each, in turn order.** A single word that proves you know the secret without
    handing it to the imposter. The timer keeps the table honest (and can be paused or reset).
 3. **Debate, then vote.** Secret ballots are cast one device at a time and stay hidden until the
@@ -183,15 +183,15 @@ contains game logic, and the same rules drive local *and* online play.
 4. **One player leaves, and the game keeps going.** There is one win rule: the game ends when a
    side has **nobody left**.
 
-| The vote lands on | What happens |
-| --- | --- |
-| An imposter | They get **one private guess** at the crew's word. Naming it hands the game to the imposters; missing it just removes them. |
-| A crew member | They are simply gone — the round ends and play continues. |
-| A tie | Nobody leaves; the round starts again. (With only two players left the tie can never be broken, so the imposter takes it.) |
+| The vote lands on | What happens                                                                                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| An imposter       | They get **one private guess** at the crew's word. Naming it hands the game to the imposters; missing it just removes them. |
+| A crew member     | They are simply gone — the round ends and play continues.                                                                   |
+| A tie             | Nobody leaves; the round starts again. (With only two players left the tie can never be broken, so the imposter takes it.)  |
 
-* **Crew win** by removing the last imposter — including the one who just failed their guess.
-* **Imposters win** by outlasting the crew, or by naming the word after being caught.
-* There is **no round limit** and no single-vote finish.
+- **Crew win** by removing the last imposter — including the one who just failed their guess.
+- **Imposters win** by outlasting the crew, or by naming the word after being caught.
+- There is **no round limit** and no single-vote finish.
 
 **No role is ever announced mid-game.** The screen after a vote shows the tally and who left, never
 whether they were crew or imposter. Roles are revealed once, on the winner screen, when the game is
@@ -199,7 +199,7 @@ over. The public room document never carries a role either — online, `revealed
 as the game ends, and the host's private `wasImposter` flag is stripped before anything is published
 (see `publicResult()`).
 
-Imposters are always a strict minority: with *n* players you can have at most `floor((n-1)/2)`.
+Imposters are always a strict minority: with _n_ players you can have at most `floor((n-1)/2)`.
 Role assignment uses `crypto.getRandomValues()` with rejection sampling and a Fisher–Yates
 shuffle, never plain `Math.random()` alone.
 
@@ -209,7 +209,7 @@ assignment in between. A chaos round re-rolls roles for everyone still in play a
 imposter, **several**, **many**, **nobody at all**, or **the whole table** — no normal player is ever
 forced to exist, and all-imposter is a real outcome. A round that deals nobody the card has nothing to
 catch, so the table is told and the round moves on; the next ordinary round hands the configured count
-back so the game can still be won. When *every* player is an imposter there is no crew left to catch
+back so the game can still be won. When _every_ player is an imposter there is no crew left to catch
 anyone, and the verdict says exactly that. Online rooms keep the same cadence — the host re-rolls on
 the scheduled chaos rounds only.
 
@@ -223,12 +223,12 @@ broadcast it. Vibration is a Settings toggle and is skipped silently on devices 
 
 A room is configured **when it is created**, and every player sees the same setup in the lobby:
 
-| Control | Range | Notes |
-| --- | --- | --- |
-| Imposters | 1–4 | Capped to a strict minority of the players who actually joined; disabled in chaos mode |
-| Turn length | 15 / 30 / 45 / 60 / 90 s | Steps through exactly those values |
-| Category + difficulty | any | From the host's word database |
-| Game mode | normal / chaos | Chaos re-rolls the deal on its scheduled rounds only |
+| Control               | Range                    | Notes                                                                                  |
+| --------------------- | ------------------------ | -------------------------------------------------------------------------------------- |
+| Imposters             | 1–4                      | Capped to a strict minority of the players who actually joined; disabled in chaos mode |
+| Turn length           | 15 / 30 / 45 / 60 / 90 s | Steps through exactly those values                                                     |
+| Category + difficulty | any                      | From the host's word database                                                          |
+| Game mode             | normal / chaos           | Chaos re-rolls the deal on its scheduled rounds only                                   |
 
 The host can change any of it in the lobby before dealing, and the roster re-checks the imposter count every
 time somebody joins or leaves.
@@ -238,38 +238,38 @@ time somebody joins or leaves.
 A party stalls the second one phone goes dark, so the room carries four escape hatches — **host (or the driver
 the room fell to) only**, nobody else ever sees these buttons:
 
-| Situation | What the table does |
-| --- | --- |
-| A player never flips their secret card | The host gets **Open the round without them** — the seen-gate is waived for that round |
-| A player’s clue turn arrives on a dead phone | The host gets **Skip NAME's turn — their phone is offline**, right on the clues screen |
-| A ballot never lands | The host gets **Close voting and tally the N ballots in** — missing votes simply do not count |
+| Situation                                            | What the table does                                                                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| A player never flips their secret card               | The host gets **Open the round without them** — the seen-gate is waived for that round                                                      |
+| A player’s clue turn arrives on a dead phone         | The host gets **Skip NAME's turn — their phone is offline**, right on the clues screen                                                      |
+| A ballot never lands                                 | The host gets **Close voting and tally the N ballots in** — missing votes simply do not count                                               |
 | The voted-out player vanishes before their one guess | The host gets **Skip their guess — count it as a miss**, and the roster is settled on the spot (last imposter gone = crew wins immediately) |
 
 Plus two room-wide rules:
 
-* **Kick** — in the lobby and mid-game the host can **Remove** a player whose phone is gone for good. Their
+- **Kick** — in the lobby and mid-game the host can **Remove** a player whose phone is gone for good. Their
   seat, ballot and clue turn are cleared and every count re-derives around them; the table does not have to
   finish the round waiting. A host cannot remove themselves (the button refuses), and removing the accused
   player mid-guess resolves that guess as a miss.
-* **The host fell over** — if the host's phone goes quiet for about a minute, the longest-standing online
+- **The host fell over** — if the host's phone goes quiet for about a minute, the longest-standing online
   player automatically becomes the driver: they get the host buttons, a notice says why, and a promoted driver
   reads each seat's own secret to rebuild the role map, so tallies stay correct. If the host leaves cleanly,
   the same hand-over happens instantly at the moment they go.
-* **Every screen has a way out** — card, briefing, clues, voting and the guess screen all end with a
+- **Every screen has a way out** — card, briefing, clues, voting and the guess screen all end with a
   **leave room / close room** control; nobody is trapped by the back-arrow alone.
 
 And a seat is now per-tab: opening the app fresh never drags you into somebody's room. A stored session is only
 offered back as a **"rejoin my last room"** button you press yourself (or resumed automatically after a refresh
-in the same tab, which is the one case that *should* walk you back to your seat).
+in the same tab, which is the one case that _should_ walk you back to your seat).
 
 ### The room lifecycle, and why it never fills up
 
 1. **Create** — a four-letter code, a row in `imposter_rooms`.
-2. **Play as long as you like** — after a game ends, *Play again* deals a fresh round to the same table, as
+2. **Play as long as you like** — after a game ends, _Play again_ deals a fresh round to the same table, as
    many times as the group wants. Everyone stays in their seat.
 3. **Close** — when the table is finished, the host closes the room. That **deletes the row**: the room, its
    players, its secrets and its history are gone. Nobody can rejoin a closed room, and a player still looking
-   at it gets a plain *the host closed this room* screen.
+   at it gets a plain _the host closed this room_ screen.
 4. **Housekeeping** — a room nobody has touched for three hours is deleted by the same sweep (available
    manually in BLACK BOX → ROOM MANAGEMENT).
 
@@ -278,11 +278,11 @@ than 50–100 players: nothing accumulates except rooms that are actually in pla
 
 ### One-time setup for everyone (no per-device paste)
 
-Pasting the URL and anon key *in the app* configures **that device only**, so every new phone would need the
+Pasting the URL and anon key _in the app_ configures **that device only**, so every new phone would need the
 same two values. Instead, publish them once:
 
 1. Open **BLACK BOX → BACKEND** on any configured device.
-2. Press **Copy runtime-config.json** (or *Download the file*) — the panel builds the finished file from the
+2. Press **Copy runtime-config.json** (or _Download the file_) — the panel builds the finished file from the
    values you already have.
 3. Save it as `public/runtime-config.json` in the repository and push. It is served next to `index.html`
    (the build copies it into `dist/` and `docs/`).
@@ -368,27 +368,45 @@ Rooms auto-expire: if the atomic RPCs are present, every write extends the room'
 
 ---
 
+## Optional: the sponsor break for custom room codes
+
+Creating a room normally hands out a random six-character code. An organiser who wants their
+own — `PARK99`, `MOVNIE`, anything that avoids the letters the game never uses — can type it,
+but the field is deliberately gated behind a fifteen-second **sponsor break**.
+
+To put real ads behind that gate, no code change is needed:
+
+1. Drop your 3–7 `.mp4` clips into `public/ads/`.
+2. Edit `public/ads/playlist.json` to list them: `["sponsor-one.mp4", "sponsor-two.mp4"]`.
+
+One file is picked at random per break. The clip plays muted (autoplay rules), and **Skip** only
+arms after fifteen seconds of actual watching; closing the break early unlocks nothing. With an
+empty playlist the plate shows an animated _AD SPACE_ placeholder and still runs the same clock —
+so the feature ships working today and takes your videos the moment they exist. Custom codes are
+pinned exactly as typed: if a live room already answers to the code, the other organiser is told
+to pick another, and the app never quietly swaps in a random one.
+
 ## Deploying to GitHub Pages
 
 > **Pick ONE source and stick to it.** Pages has two independent deploy mechanisms, and the wrong
 > combination fails silently: the branch publisher copies the **repository root** (source:
-> `index.html`, `src/`, `package.json`) on every push and *overwrites* what the Actions workflow
+> `index.html`, `src/`, `package.json`) on every push and _overwrites_ what the Actions workflow
 > published. The browser then gets `index.html` asking for `/src/main.jsx`, refuses to execute `.jsx`
 > (wrong MIME type), and the app never boots.
 >
 > **How to spot it:** the page shows the "IMPOSTER could not start" card, and these return HTTP 200 —
 > `https://user.github.io/repo/src/main.jsx` and `.../package.json`.
-> **Fix:** Settings → Pages → Source must be **GitHub Actions** (Option A), never *Deploy from a
-> branch → /(root)* while the workflow also runs.
+> **Fix:** Settings → Pages → Source must be **GitHub Actions** (Option A), never _Deploy from a
+> branch → /(root)_ while the workflow also runs.
 
 ### Option A — GitHub Actions (recommended)
 
 1. Push this repository to GitHub.
 2. **Settings → Pages → Source: GitHub Actions.** ← this is what stops the branch publisher from
-   clobbering the deploy. Change it *before* re-running the workflow.
+   clobbering the deploy. Change it _before_ re-running the workflow.
 3. Optional (online mode): add `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` under
-   *Settings → Secrets and variables → Actions*. Not required — you can paste values in the app or
-   edit `runtime-config.json` instead (see *Backend configuration*).
+   _Settings → Secrets and variables → Actions_. Not required — you can paste values in the app or
+   edit `runtime-config.json` instead (see _Backend configuration_).
 4. Push to `main`, or **Actions → Deploy IMPOSTER to GitHub Pages → Run workflow**.
 
 If the **deploy** job sits on `queued` while the build job succeeded, open the run and either approve
@@ -454,12 +472,12 @@ Also safe for plain static hosts: Netlify, Cloudflare Pages, Vercel, S3, or `fil
 2. Enter the access phrase at the prompt.
 3. The dashboard opens with four sections:
 
-| Section | Contents |
-| --- | --- |
-| **SYSTEM STATUS** | Storage/RNG/network/Supabase checks, word counts per tier, build version, local audit log |
-| **WORD DATABASE** | Create/read/update/delete words, category create/rename/delete, search, difficulty filter, tier chips, import/export JSON, reset to defaults |
-| **ROOM MANAGEMENT** | Live rooms (code, host, players, status, phase), terminate with confirmation, sweep expired rooms |
-| **SETTINGS** | Operator defaults, cloud word sync (push/pull), lock the session now, clear all local data |
+| Section             | Contents                                                                                                                                     |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SYSTEM STATUS**   | Storage/RNG/network/Supabase checks, word counts per tier, build version, local audit log                                                    |
+| **WORD DATABASE**   | Create/read/update/delete words, category create/rename/delete, search, difficulty filter, tier chips, import/export JSON, reset to defaults |
+| **ROOM MANAGEMENT** | Live rooms (code, host, players, status, phase), terminate with confirmation, sweep expired rooms                                            |
+| **SETTINGS**        | Operator defaults, cloud word sync (push/pull), lock the session now, clear all local data                                                   |
 
 The unlock lasts 30 minutes in the tab (`sessionStorage`) and the panel can be locked manually.
 Failed attempts are throttled: 5 tries then a 60-second lockout, with every event written to a
@@ -476,10 +494,10 @@ Everything lives in **BLACK BOX → WORD DATABASE**:
    your own group; it appears in the game setup's category list straight away.
 
 New words are stored on this device and are immediately playable. The Settings screen repeats these
-steps under *CUSTOM WORDS & CATEGORIES*, so you never have to remember them.
+steps under _CUSTOM WORDS & CATEGORIES_, so you never have to remember them.
 
 **Cover words (hints).** Every word can carry up to **six** cover words — the words the imposter is
-offered as a bluff. Type them into the *cover words* field beside a word (comma separated); if a word
+offered as a bluff. Type them into the _cover words_ field beside a word (comma separated); if a word
 has several, the game draws **one at random** each time it is dealt, so the same word bluffs
 differently on every replay. Leave the field empty and the imposter is offered another word **from the
 same category** instead, which keeps the bluff in the same world as the real word. Hints travel with
@@ -499,20 +517,20 @@ repo silently erased the published values (which is exactly why players saw "wai
 server"). A test now fails the build if that file is ever blanked.
 
 Extra safety net: `node scripts/live-check.mjs` boots the real app with the shipped file and reports
-whether a fresh device connects; add `--live` to test the copy GitHub Pages is *currently* serving.
+whether a fresh device connects; add `--live` to test the copy GitHub Pages is _currently_ serving.
 
 ### Refreshing mid-game is survivable
 
 A reload used to throw a pass & play table away instantly. Now:
 
-- **Before it happens**, while a game is running, the app registers the browser's own *"Leave site?"* prompt — on
+- **Before it happens**, while a game is running, the app registers the browser's own _"Leave site?"_ prompt — on
   desktop and most Android phones a refresh is caught before it does anything.
 - **If the reload goes through anyway** (a phone's pull-to-refresh, or iOS which ignores that prompt), the tab
   remembers it was reloaded and the table is restored from per-tab `sessionStorage` — an open secret card is closed
   again and the countdown is paused rather than eaten.
 - **On the way back** the app shows a full-screen warning — **!! HUGE WARNING !! REFRESHING RESETS CURRENT GAME** —
   with two ways out: **CONTINUE GAME** (keep the table exactly where it was) or **LEAVE [REFRESH]** (end it and go
-  back to the menu). Online rooms get the same warning, and *LEAVE* quits the room for real.
+  back to the menu). Online rooms get the same warning, and _LEAVE_ quits the room for real.
 
 The snapshot lives in `sessionStorage`, so it dies with the tab: closing the browser still ends the table.
 
@@ -549,7 +567,7 @@ round's word out of the shared document.
 
 The room server is published **once** by the organiser in `runtime-config.json` next to `index.html`.
 Every other device reads it automatically — and if someone opens the app (or an invite link) before it
-has been published, the screen says *"Waiting for the room server"* with a **Check again** button.
+has been published, the screen says _"Waiting for the room server"_ with a **Check again** button.
 The app also re-reads the file by itself every 15 seconds, and whenever the tab is focused, so the
 waiting screen clears on its own within moments of the file going live. No player is ever asked for a
 URL or a key; only **I'm the organiser** opens the connect panel.
@@ -569,12 +587,12 @@ node scripts/set-admin-password.mjs "your new passphrase"
 
 ## Configuration reference
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | Optional | Supabase project URL — **fallback only**; in-app settings and `runtime-config.json` take priority |
-| `VITE_SUPABASE_ANON_KEY` | Optional | Public anon key — same precedence |
-| `VITE_ROOM_TTL_MINUTES` | No (default `180`) | Idle lifetime for a room |
-| `VITE_BASE_PATH` | No (default `./`) | Absolute asset base, e.g. `/my-repo/` |
+| Variable                 | Required           | Purpose                                                                                           |
+| ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`      | Optional           | Supabase project URL — **fallback only**; in-app settings and `runtime-config.json` take priority |
+| `VITE_SUPABASE_ANON_KEY` | Optional           | Public anon key — same precedence                                                                 |
+| `VITE_ROOM_TTL_MINUTES`  | No (default `180`) | Idle lifetime for a room                                                                          |
+| `VITE_BASE_PATH`         | No (default `./`)  | Absolute asset base, e.g. `/my-repo/`                                                             |
 
 User-facing settings (Settings screen, stored in `localStorage`):
 sound · animations · reduced motion · haptics (vibration ON/OFF) · imposter cover word · theme intensity (0–2).
@@ -597,12 +615,12 @@ This is an honest description of a static client-side app.
 - **No secrets in the repo.** The admin passphrase exists only as a salted digest; the public
   Supabase keys are public by design. Never put a `service_role` key in a `VITE_` variable.
 
-**What is explicitly *not* protected**
+**What is explicitly _not_ protected**
 
 - The **BLACK BOX gate is a convenience layer, not authentication.** A determined user with devtools
   can inspect or bypass client-side gating. It hides the panel and slows casual access — nothing more.
 - Similarly, a player who reads the raw room row in devtools could inspect the `secrets` column.
-  Keeping secrets out of the *public* document stops accidental leakage and ordinary curiosity; it is
+  Keeping secrets out of the _public_ document stops accidental leakage and ordinary curiosity; it is
   not cryptographic protection. If you need that, run your own server-side game logic — which this
   project deliberately avoids so it can be hosted for free.
 - The anon role can create/update room rows. Rate-limit or add auth if you deploy this publicly at scale.
@@ -645,11 +663,11 @@ stuck phase transition or a broken route fails the run.
 Online rooms need a Supabase project. **You never have to edit code or rebuild to point the app at
 one** — the values are resolved at runtime, in this order:
 
-| # | Where | Best for | How |
-| --- | --- | --- | --- |
-| 1 | **In the app** | quickest, per device | Online Room → **Connect a backend**, or BLACK BOX → **BACKEND**. Paste the URL and anon key once; stored in that browser and applied immediately. |
-| 2 | **`runtime-config.json`** | one place for everyone | Lives next to `index.html` in `dist/`. Edit the two values on the host and every visitor picks it up — no rebuild, no redeploy. A `runtime-config.sample.json` is shipped alongside it. |
-| 3 | **Build variables** | a baked-in default | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` (`.env`, or CI secrets). Optional now — this is just a fallback. |
+| #   | Where                     | Best for               | How                                                                                                                                                                                     |
+| --- | ------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **In the app**            | quickest, per device   | Online Room → **Connect a backend**, or BLACK BOX → **BACKEND**. Paste the URL and anon key once; stored in that browser and applied immediately.                                       |
+| 2   | **`runtime-config.json`** | one place for everyone | Lives next to `index.html` in `dist/`. Edit the two values on the host and every visitor picks it up — no rebuild, no redeploy. A `runtime-config.sample.json` is shipped alongside it. |
+| 3   | **Build variables**       | a baked-in default     | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` (`.env`, or CI secrets). Optional now — this is just a fallback.                                                                         |
 
 First hit wins, so a value you paste in the app always overrides the published file, which overrides
 the build. Clearing the device values falls back down the chain.
@@ -658,7 +676,7 @@ the build. Clearing the device values falls back down the chain.
 // dist/runtime-config.json  (comments allowed; blanks fall through to the build values)
 {
   "supabaseUrl": "https://abcdefghijklm.supabase.co",
-  "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...."
+  "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....",
 }
 ```
 
@@ -671,7 +689,7 @@ the build. Clearing the device values falls back down the chain.
   `/rest/v1` or a trailing slash is normalised; a bare project ref (`abcdefghijklm`) is expanded to
   `https://abcdefghijklm.supabase.co`.
 - **Test connection** probes the rooms table with a throwaway client, so a typo can never break a
-  working setup. Nothing is saved until you press *Save & use*.
+  working setup. Nothing is saved until you press _Save & use_.
 - A `runtime-config.json` that is present but malformed is **ignored with a visible warning** in the
   panel, never silently swallowed.
 - Only the project URL and anon key are ever read. No service-role key, ever.
@@ -698,25 +716,25 @@ Run `supabase/schema.sql` once in the project and online rooms are live.
 
 ## Troubleshooting
 
-| Symptom | Fix |
-| --- | --- |
-| “Connect a backend to play online” | Paste your project URL + anon key right there (or BLACK BOX → BACKEND). No rebuild needed. |
-| Values ignored after editing `runtime-config.json` | The panel says why — usually a placeholder left in, a missing value, or invalid JSON. In-app values outrank the file, so clear those if you meant to switch. |
-| “That is the service-role key” | Working as intended — use the anon / publishable key. The service-role key must never be in a browser. |
-| Pasted the Supabase **dashboard** URL by mistake | No longer a problem: `supabase.com/dashboard/project/<ref>` is converted automatically to `https://<ref>.supabase.co`. A dashboard link without a project reference is refused with instructions. |
-| A tall panel can't be scrolled on a phone | Fixed: the page behind a dialog is scroll-locked, so dialogs now cap themselves to the viewport and scroll internally. |
-| The crew caught an imposter but the imposters still won | Expected: a caught imposter gets one guess at the word, and naming it hands them the game. Vote out every imposter (or let them miss) and the crew takes it. |
-| “The room database is not set up yet” | Run `supabase/schema.sql` in the SQL editor. |
-| Lobby never updates on other devices | Enable Realtime and make sure `imposter_rooms` is in the `supabase_realtime` publication. |
-| “That code contains a character we never use” | Room codes exclude `O I L 0 1 S Z 2 5` to avoid misreads — check the code again. |
-| “GAME IN PROGRESS” | You can only join a running game by reusing the same name (that is the reconnect path). |
-| Cloud word sync rejected | Expected: shared word writes require an authenticated Supabase session (RLS). |
-| Stuck on “LOADING” forever | The host is serving the **source tree**, not the built site — browsers refuse `.jsx` (wrong MIME type), so React never mounts. Set Pages → Source to **GitHub Actions**, or point it at the `/docs` folder. |
-| The site reverts to source after each push | Pages is set to *Deploy from a branch → /(root)* **and** the workflow runs. The branch publisher wins every push. Switch Pages → Source to **GitHub Actions**, or move to the `/docs` option and stop using Actions. |
-| Workflow `deploy` job stuck on `queued` | The build succeeded; GitHub is waiting on the Pages environment. Open the run → **Review deployments → Approve**, or re-run the job after setting Pages → Source to GitHub Actions. |
-| “IMPOSTER could not start” card | That is the built-in failsafe, not a crash. Expand **Diagnostics** in the card for the page URL, bundle path and service-worker state, then follow the fix it names. |
-| Blank page after deploying to Pages | Confirm the workflow/branch uploaded the `dist/` **contents** (index.html at the root) and hard-refresh. Run `npm run doctor` to audit the output before pushing. |
-| Refreshing a deep link 404s on another host | That host lacks the `404.html` fallback; Pages and the bundled `dist/404.html` handle it automatically. |
+| Symptom                                                 | Fix                                                                                                                                                                                                                  |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| “Connect a backend to play online”                      | Paste your project URL + anon key right there (or BLACK BOX → BACKEND). No rebuild needed.                                                                                                                           |
+| Values ignored after editing `runtime-config.json`      | The panel says why — usually a placeholder left in, a missing value, or invalid JSON. In-app values outrank the file, so clear those if you meant to switch.                                                         |
+| “That is the service-role key”                          | Working as intended — use the anon / publishable key. The service-role key must never be in a browser.                                                                                                               |
+| Pasted the Supabase **dashboard** URL by mistake        | No longer a problem: `supabase.com/dashboard/project/<ref>` is converted automatically to `https://<ref>.supabase.co`. A dashboard link without a project reference is refused with instructions.                    |
+| A tall panel can't be scrolled on a phone               | Fixed: the page behind a dialog is scroll-locked, so dialogs now cap themselves to the viewport and scroll internally.                                                                                               |
+| The crew caught an imposter but the imposters still won | Expected: a caught imposter gets one guess at the word, and naming it hands them the game. Vote out every imposter (or let them miss) and the crew takes it.                                                         |
+| “The room database is not set up yet”                   | Run `supabase/schema.sql` in the SQL editor.                                                                                                                                                                         |
+| Lobby never updates on other devices                    | Enable Realtime and make sure `imposter_rooms` is in the `supabase_realtime` publication.                                                                                                                            |
+| “That code contains a character we never use”           | Room codes exclude `O I L 0 1 S Z 2 5` to avoid misreads — check the code again.                                                                                                                                     |
+| “GAME IN PROGRESS”                                      | You can only join a running game by reusing the same name (that is the reconnect path).                                                                                                                              |
+| Cloud word sync rejected                                | Expected: shared word writes require an authenticated Supabase session (RLS).                                                                                                                                        |
+| Stuck on “LOADING” forever                              | The host is serving the **source tree**, not the built site — browsers refuse `.jsx` (wrong MIME type), so React never mounts. Set Pages → Source to **GitHub Actions**, or point it at the `/docs` folder.          |
+| The site reverts to source after each push              | Pages is set to _Deploy from a branch → /(root)_ **and** the workflow runs. The branch publisher wins every push. Switch Pages → Source to **GitHub Actions**, or move to the `/docs` option and stop using Actions. |
+| Workflow `deploy` job stuck on `queued`                 | The build succeeded; GitHub is waiting on the Pages environment. Open the run → **Review deployments → Approve**, or re-run the job after setting Pages → Source to GitHub Actions.                                  |
+| “IMPOSTER could not start” card                         | That is the built-in failsafe, not a crash. Expand **Diagnostics** in the card for the page URL, bundle path and service-worker state, then follow the fix it names.                                                 |
+| Blank page after deploying to Pages                     | Confirm the workflow/branch uploaded the `dist/` **contents** (index.html at the root) and hard-refresh. Run `npm run doctor` to audit the output before pushing.                                                    |
+| Refreshing a deep link 404s on another host             | That host lacks the `404.html` fallback; Pages and the bundled `dist/404.html` handle it automatically.                                                                                                              |
 
 ---
 

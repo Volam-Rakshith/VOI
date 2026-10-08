@@ -21,7 +21,12 @@ export function OnlineSession({ renderSetup, onExit }) {
   const bank = useWordBank()
   const toast = useToast()
   const online = useOnlineRoom(bank)
-  const lastSession = readJSON(STORAGE_KEYS.session, null)
+  /*
+   * The stored session (this tab's live seat) wins; otherwise fall back to the
+   * last room this DEVICE joined. That fallback is the "get back to the room"
+   * option — one tap after a deliberate Leave, as long as the room still exists.
+   */
+  const lastSession = readJSON(STORAGE_KEYS.session, null) || readJSON(STORAGE_KEYS.lastRoom, null)
   const [configureOpen, setConfigureOpen] = useState(false)
 
   /* Surface connection problems as toasts too — banners can be missed. */

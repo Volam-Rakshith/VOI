@@ -177,7 +177,17 @@ export function OnlineGamePhases({ online, onExit }) {
         <ScreenHeader title="Room closed" eyebrow="session ended" onBack={onExit} />
         <div className="shell-narrow flex-1 py-6">
           <InlineNotice tone="error">The host closed this room and the game is over for everyone. Create a new room whenever you are ready — nothing was left behind on the server.</InlineNotice>
-          <Button className="mt-4" variant="primary" fullWidth onClick={onExit}>
+          <Button
+            className="mt-4"
+            variant="primary"
+            fullWidth
+            onClick={async () => {
+              /* The row is gone; drop the dead seat first so the menu shows the
+                 menu — and never offers this closed room back. */
+              await actions.detach()
+              onExit?.()
+            }}
+          >
             Back to online menu
           </Button>
         </div>
@@ -203,7 +213,27 @@ export function OnlineGamePhases({ online, onExit }) {
     return (
       <>
         {header('game over', <Badge tone={room.game.winner === 'crew' ? 'cyan' : 'magenta'}>{room.game.winner}</Badge>)}
-        <WinnerScreen winner={room.game.winner} reason={room.game.lastResult?.reason} word={mySecret?.role === ROLES.IMPOSTER ? null : mySecret?.word || null} players={players} round={room.game.round} onPlayAgain={isHost ? actions.playAgain : null} onExit={onExit} exitLabel="Leave room">
+        <WinnerScreen
+          winner={room.game.winner}
+          reason={room.game.lastResult?.reason}
+          word={mySecret?.role === ROLES.IMPOSTER ? null : mySecret?.word || null}
+          players={players}
+          round={room.game.round}
+          onPlayAgain={isHost ? actions.playAgain : null}
+          exitLabel={isHost ? 'Close room & finish' : 'Leave room'}
+          onExit={async () => {
+            /*
+             * Leaving at game over used to just navigate — same route, same
+             * room, nothing happened. Now the seat is truly given up; and the
+             * host, who owns the room's life, closes it so the row does not
+             * linger. A finished-but-open room stays reachable from the setup
+             * screen via "rejoin my last room".
+             */
+            if (isHost) await actions.closeRoom()
+            else await actions.detach()
+            onExit?.()
+          }}
+        >
           {room.game.lastResult && (
             <Panel className="px-4 py-3">
               <p className="label mb-2 text-[9px]">final tally</p>

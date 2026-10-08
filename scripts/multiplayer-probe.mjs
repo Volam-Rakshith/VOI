@@ -92,6 +92,61 @@ async function runCycle(index, plan) {
       return allOk
     }
 
+    if (plan.kind === 'custom-code') {
+      /*
+       * The sponsor-gated custom code, checked against the real database:
+       * the code the player typed is PINNED (not quietly regenerated), an
+       * ugly code never reaches the insert, and a taken code is refused by
+       * name — never swapped for a random one.
+       */
+      const { ROOM_ALPHABET } = await import('../src/utils/random.js')
+      let chosen = ''
+      while (chosen.length < 6) chosen += ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)]
+      const roomConfig = { imposterCount: 1, categoryIds: ['random'], difficulty: 'mixed', turnSeconds: 30 }
+      let allOk = true
+      try {
+        const first = await service.createRoom({ playerName: 'Custom A', config: roomConfig, customCode: chosen })
+        createdRooms.push(first.code)
+        if (first.code !== chosen) {
+          fail(index, `custom code was not pinned: wanted ${chosen}, got ${first.code}`)
+          allOk = false
+        } else {
+          console.log(`  ✓ custom code ${chosen} became the room code exactly as typed`)
+        }
+        try {
+          await service.createRoom({ playerName: 'Custom B', config: roomConfig, customCode: 'BABY01' })
+          fail(index, 'a code with banned characters was accepted')
+          allOk = false
+        } catch (error) {
+          if (error.code !== 'INVALID_CODE') {
+            fail(index, `ugly custom code gave ${error.code} instead of INVALID_CODE`)
+            allOk = false
+          } else {
+            console.log(`  ✓ ugly code refused: "${service.friendlyRoomError(error)}"`)
+          }
+        }
+        try {
+          await service.createRoom({ playerName: 'Custom C', config: roomConfig, customCode: chosen })
+          fail(index, 'a duplicate custom code was accepted — two live rooms share it!')
+          allOk = false
+        } catch (error) {
+          if (error.code !== 'CODE_TAKEN') {
+            fail(index, `duplicate custom code gave ${error.code} instead of CODE_TAKEN`)
+            allOk = false
+          } else {
+            console.log(`  ✓ live code not reusable: "${service.friendlyRoomError(error)}"`)
+          }
+        }
+        await service.terminateRoom(first.code)
+        createdRooms.pop()
+      } catch (error) {
+        fail(index, `custom-code flow broke: ${error.message}`)
+        allOk = false
+      }
+      rows.push({ label, detail: 'pinned exactly · ugly refused · taken rejected', ms: Date.now() - started, ok: allOk })
+      return allOk
+    }
+
     // ---- create the room ------------------------------------------------
     const hostName = nameFor(0)
     const { code, player: host } = await service.createRoom({
@@ -206,6 +261,7 @@ for (let i = 17; i <= 19; i += 1) plan.push({ kind: 'big', players: 6 + (i - 17)
 plan.push({ kind: 'duplicate', players: 4, label: 'same name from a second device' })
 plan.push({ kind: 'bogus-code', label: 'bad codes (missing room + banned character)' })
 plan.push({ kind: 'terminated', players: 3, label: 'a room that was just closed' })
+plan.push({ kind: 'custom-code', label: 'custom code: pinned, rejected when ugly, refused when taken' })
 
 let ok = 0
 for (let i = 0; i < (only || plan.length); i += 1) {
@@ -235,9 +291,7 @@ try {
   const { room: afterJoin } = await service.joinRoom({ playerName: 'RT Guest', code })
   const deadline = Date.now() + 6000
   while (!sawJoin && Date.now() < deadline) await sleep(150)
-  realtimeResult = sawJoin
-    ? `✓ the host's screen received the join live (roster now ${room?.players.length} players)`
-    : '⚠ no realtime event arrived within 6s (the join itself succeeded over REST)'
+  realtimeResult = sawJoin ? `✓ the host's screen received the join live (roster now ${room?.players.length} players)` : '⚠ no realtime event arrived within 6s (the join itself succeeded over REST)'
   if (!sawJoin && afterJoin.players.length === 2) realtimeResult += ' — realtime needs a browser socket; verified separately by the UI suite'
   unsubscribe()
   await service.terminateRoom(code)

@@ -28,7 +28,7 @@ export function OnlineGame({ onNavigate, onRoomReady }) {
                 lastSession={lastSession}
                 onSubmit={async (payload) => {
                   if (payload.mode === 'create') {
-                    const result = await createRoom(payload.name, payload.config)
+                    const result = await createRoom(payload.name, payload.config, payload.customCode)
                     if (!result.ok) return toast.error(result.error)
                     toast.success(`Room ${result.code} created`)
                     onNavigate(ROUTES.lobby, { room: result.code })
@@ -48,10 +48,7 @@ export function OnlineGame({ onNavigate, onRoomReady }) {
             </PanelBody>
           </Panel>
 
-          <InlineNotice tone="info">
-            Every player needs their own device and the same room code. The secret word is never broadcast — it is
-            delivered privately to each player's device, and only after the host starts the game.
-          </InlineNotice>
+          <InlineNotice tone="info">Every player needs their own device and the same room code. The secret word is never broadcast — it is delivered privately to each player's device, and only after the host starts the game.</InlineNotice>
         </div>
       </ScreenShell>
     ),

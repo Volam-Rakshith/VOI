@@ -17,20 +17,12 @@ import { normalizeName, validatePlayerName, validateRoomCode } from '../../utils
 import { categoryOptions } from '../../lib/wordBank.js'
 import { useWordBank } from '../../context/WordBankContext.jsx'
 import { sanitizeConfig } from '../../data/defaults.js'
+import { AdBreak } from './AdBreak.jsx'
+import { filterCustomCodeInput, validateCustomRoomCode } from '../../lib/adGate.js'
 
 const ONLINE_LIMITS = { MIN_PLAYERS: 3, MAX_PLAYERS: 20, MAX_IMPOSTERS: 4 }
 
-export function OnlineSetup({
-  configured,
-  backend = null,
-  onConfigure = null,
-  onCheckConfig = null,
-  busy = null,
-  onSubmit,
-  onQuickJoin = null,
-  lastSession = null,
-  defaultName = '',
-}) {
+export function OnlineSetup({ configured, backend = null, onConfigure = null, onCheckConfig = null, busy = null, onSubmit, onQuickJoin = null, lastSession = null, defaultName = '' }) {
   const { bank } = useWordBank()
   const categories = categoryOptions(bank)
   const [tab, setTab] = useState(lastSession?.code ? 'join' : 'create')
@@ -50,6 +42,11 @@ export function OnlineSetup({
    * created capped at four imposters and the lobby re-checks it against the
    * real roster before the game starts.
    */
+  /* Custom room code: typed only after the 15-second sponsor break unlocks it. */
+  const [customCode, setCustomCode] = useState('')
+  const [codeUnlocked, setCodeUnlocked] = useState(false)
+  const [adOpen, setAdOpen] = useState(false)
+
   const [config, setConfig] = useState(() => ({
     ...sanitizeConfig({
       imposterCount: 1,
@@ -101,19 +98,13 @@ export function OnlineSetup({
         />
         {checkFailed ? (
           <InlineNotice tone="warn">
-            Still not connected — the room server has not been published yet. Ask the organiser to finish the one-time
-            setup, then tap <strong className="font-bold">Check again</strong>.
+            Still not connected — the room server has not been published yet. Ask the organiser to finish the one-time setup, then tap <strong className="font-bold">Check again</strong>.
           </InlineNotice>
         ) : null}
         {onConfigure ? (
           <InlineNotice tone="info">
-            <strong className="font-bold">Organiser?</strong> Connect once from this device — paste the{' '}
-            <strong className="font-bold">Project URL</strong> and <strong className="font-bold">anon key</strong> (no
-            rebuild, no redeploy) — then publish{' '}
-            <code className="font-mono text-[11.5px]">runtime-config.json</code> next to{' '}
-            <code className="font-mono text-[11.5px]">index.html</code> (the panel copies or downloads the finished
-            file) so every player joins with nothing to paste. Also run{' '}
-            <code className="font-mono text-[11.5px]">supabase/schema.sql</code> once in the Supabase SQL editor.
+            <strong className="font-bold">Organiser?</strong> Connect once from this device — paste the <strong className="font-bold">Project URL</strong> and <strong className="font-bold">anon key</strong> (no rebuild, no redeploy) — then publish <code className="font-mono text-[11.5px]">runtime-config.json</code> next to <code className="font-mono text-[11.5px]">index.html</code> (the panel
+            copies or downloads the finished file) so every player joins with nothing to paste. Also run <code className="font-mono text-[11.5px]">supabase/schema.sql</code> once in the Supabase SQL editor.
           </InlineNotice>
         ) : null}
       </div>
@@ -160,10 +151,17 @@ export function OnlineSetup({
     setErrors({})
     const cleanName = validateName()
     if (!cleanName) return
+    let code = null
+    if (codeUnlocked && customCode) {
+      const check = validateCustomRoomCode(customCode)
+      if (!check.ok) return setErrors({ custom: check.error })
+      code = check.value
+    }
     const category = categories.find((c) => c.id === categoryId)
     onSubmit?.({
       mode: 'create',
       name: cleanName,
+      customCode: code,
       config: {
         ...config,
         categoryIds: [categoryId],
@@ -194,15 +192,7 @@ export function OnlineSetup({
 
       {tab === 'join' ? (
         <motion.div key="join" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3.5">
-          <Field
-            label="your name"
-            placeholder="e.g. RAKSHITH"
-            value={name}
-            maxLength={LIMITS.NAME_MAX}
-            autoComplete="nickname"
-            error={errors.name}
-            onChange={(event) => setName(normalizeName(event.target.value))}
-          />
+          <Field label="your name" placeholder="e.g. RAKSHITH" value={name} maxLength={LIMITS.NAME_MAX} autoComplete="nickname" error={errors.name} onChange={(event) => setName(normalizeName(event.target.value))} />
           <Field
             label="room code"
             placeholder="A7KQMN"
@@ -213,18 +203,21 @@ export function OnlineSetup({
             spellCheck={false}
             error={errors.code}
             hint={`${LIMITS.ROOM_CODE_LENGTH} characters · case-insensitive`}
-            onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, LIMITS.ROOM_CODE_LENGTH))}
+            onChange={(event) =>
+              setCode(
+                event.target.value
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9]/g, '')
+                  .slice(0, LIMITS.ROOM_CODE_LENGTH),
+              )
+            }
           />
           {errors.form && <InlineNotice tone="error">{errors.form}</InlineNotice>}
           <Button variant="primary" fullWidth onClick={submitJoin} disabled={busy === 'joining'}>
             {busy === 'joining' ? 'Connecting…' : 'Join room'}
           </Button>
           {lastSession?.code && (
-            <button
-              type="button"
-              onClick={() => onQuickJoin?.(lastSession)}
-              className="w-full rounded-xl border border-violet-500/30 bg-black/30 px-3.5 py-2.5 text-left transition hover:border-cyan-300/45"
-            >
+            <button type="button" onClick={() => onQuickJoin?.(lastSession)} className="w-full rounded-xl border border-violet-500/30 bg-black/30 px-3.5 py-2.5 text-left transition hover:border-cyan-300/45">
               <span className="block text-[10.5px] uppercase tracking-[.22em] text-violet-200/55">rejoin my last room</span>
               <span className="mt-0.5 block font-display text-[12.5px] tracking-[.12em] text-cyan-100">
                 {lastSession.code} · {lastSession.name}
@@ -234,37 +227,11 @@ export function OnlineSetup({
         </motion.div>
       ) : (
         <motion.div key="create" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3.5">
-          <Field
-            label="your name"
-            placeholder="e.g. RAKSHITH"
-            value={name}
-            maxLength={LIMITS.NAME_MAX}
-            autoComplete="nickname"
-            error={errors.name}
-            onChange={(event) => setName(normalizeName(event.target.value))}
-          />
+          <Field label="your name" placeholder="e.g. RAKSHITH" value={name} maxLength={LIMITS.NAME_MAX} autoComplete="nickname" error={errors.name} onChange={(event) => setName(normalizeName(event.target.value))} />
 
           <div className="glass clip-hud-sm space-y-1 px-3.5 py-2.5">
-            <Stepper
-              label="Imposters"
-              hint={chaos ? 'Chaos re-rolls this every round' : 'Always a strict minority'}
-              value={chaos ? 1 : config.imposterCount}
-              min={1}
-              max={ONLINE_LIMITS.MAX_IMPOSTERS}
-              disabled={chaos}
-              onChange={(value) => setConfig((c) => ({ ...c, imposterCount: value }))}
-            />
-            <Stepper
-              label="Turn length"
-              hint="How long each player gets for their clue"
-              value={config.turnSeconds}
-              min={15}
-              max={90}
-              step={15}
-              values={[15, 30, 45, 60, 90]}
-              suffix="s"
-              onChange={(value) => setConfig((c) => ({ ...c, turnSeconds: nearestTurn(value) }))}
-            />
+            <Stepper label="Imposters" hint={chaos ? 'Chaos re-rolls this every round' : 'Always a strict minority'} value={chaos ? 1 : config.imposterCount} min={1} max={ONLINE_LIMITS.MAX_IMPOSTERS} disabled={chaos} onChange={(value) => setConfig((c) => ({ ...c, imposterCount: value }))} />
+            <Stepper label="Turn length" hint="How long each player gets for their clue" value={config.turnSeconds} min={15} max={90} step={15} values={[15, 30, 45, 60, 90]} suffix="s" onChange={(value) => setConfig((c) => ({ ...c, turnSeconds: nearestTurn(value) }))} />
           </div>
 
           <div className="glass clip-hud-sm space-y-3 px-3.5 py-3">
@@ -303,22 +270,59 @@ export function OnlineSetup({
             {/* One win rule: a side runs out of players, or the imposters reach parity. */}
             <div className="rounded-xl border border-violet-400/25 bg-black/30 px-3 py-2.5">
               <span className="label text-[9px]">how the game ends</span>
-              <p className="mt-1 text-[11.5px] leading-relaxed text-violet-200/60">
-                When one side has nobody left — or earlier, the moment the imposters match the crew, because no vote can remove
-                them then. A caught imposter gets one guess at the word first. A split vote removes nobody.
-              </p>
+              <p className="mt-1 text-[11.5px] leading-relaxed text-violet-200/60">When one side has nobody left — or earlier, the moment the imposters match the crew, because no vote can remove them then. A caught imposter gets one guess at the word first. A split vote removes nobody.</p>
             </div>
-            {chaos && (
-              <p className="text-[11.5px] leading-relaxed text-cyan-200/75">
-                Chaos re-rolls the imposters every round — one, several, many, or the whole table.
+            {chaos && <p className="text-[11.5px] leading-relaxed text-cyan-200/75">Chaos re-rolls the imposters every round — one, several, many, or the whole table.</p>}
+          </div>
+
+          <div className="glass clip-hud-sm space-y-2 rounded-xl px-3.5 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="label text-[9px]">custom room code</p>
+                <p className="mt-0.5 text-[11px] leading-snug text-violet-200/55">{codeUnlocked ? 'Unlocked — type the six characters this room will answer to.' : 'Your own code, instead of a rolled one. Unlock it with a 15-second sponsor break.'}</p>
+              </div>
+              {!codeUnlocked && (
+                <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setAdOpen(true)}>
+                  ▶ Watch ad
+                </Button>
+              )}
+              {codeUnlocked && <span className="shrink-0 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 font-display text-[9px] uppercase tracking-[.18em] text-emerald-200">unlocked</span>}
+            </div>
+            <input
+              value={customCode}
+              onChange={(event) => {
+                setCustomCode(filterCustomCodeInput(event.target.value))
+                setErrors((e) => ({ ...e, custom: null }))
+              }}
+              disabled={!codeUnlocked}
+              placeholder={codeUnlocked ? 'e.g. PARK99' : 'locked — watch the break to type here'}
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck="false"
+              aria-label="custom room code"
+              className={`field font-display tracking-[.3em] uppercase disabled:cursor-not-allowed disabled:opacity-45 ${errors.custom ? 'field-invalid' : ''}`}
+            />
+            {errors.custom && (
+              <p role="alert" className="text-[11.5px] font-semibold text-magenta-neon">
+                {errors.custom}
               </p>
             )}
           </div>
 
           {errors.form && <InlineNotice tone="error">{errors.form}</InlineNotice>}
           <Button variant="primary" fullWidth onClick={submitCreate} disabled={busy === 'creating'}>
-            {busy === 'creating' ? 'Creating room…' : 'Create room'}
+            {busy === 'creating' ? 'Creating room…' : codeUnlocked && customCode ? `Create room · ${customCode}` : 'Create room'}
           </Button>
+
+          {adOpen && (
+            <AdBreak
+              onDone={() => {
+                setAdOpen(false)
+                setCodeUnlocked(true)
+              }}
+              onClose={() => setAdOpen(false)}
+            />
+          )}
           <p className="flex items-center justify-center gap-1.5 text-[11px] text-violet-200/45">
             <Glyph name="users" size={12} /> 3–20 players · every player needs their own device
           </p>

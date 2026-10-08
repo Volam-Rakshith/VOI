@@ -59,29 +59,19 @@ export function WinnerScreen({
     const caught = imposters.length - yetAlive
     if (crewWon) {
       if (imposters.length <= 1) return 'THE IMPOSTER WAS CAUGHT'
-      return caught === imposters.length
-        ? `ALL ${imposters.length} IMPOSTERS CAUGHT`
-        : `${caught} OF ${imposters.length} IMPOSTERS CAUGHT`
+      return caught === imposters.length ? `ALL ${imposters.length} IMPOSTERS CAUGHT` : `${caught} OF ${imposters.length} IMPOSTERS CAUGHT`
     }
     return caught > 0 ? 'NOT ENOUGH — THEY SURVIVED' : 'YOU WERE FOOLED'
   }, [players, crewWon])
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className={`relative flex flex-1 flex-col items-center justify-center gap-5 px-4 py-8 safe-t safe-b ${
-        !crewWon && !motionOff ? 'shake' : ''
-      }`}
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`relative flex flex-1 flex-col items-center justify-center gap-5 px-4 py-8 safe-t safe-b ${!crewWon && !motionOff ? 'shake' : ''}`}>
       {/* Victory backdrop */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
-          background: crewWon
-            ? 'radial-gradient(700px 420px at 50% 30%, rgba(34,211,238,.24), transparent 68%), radial-gradient(600px 380px at 20% 90%, rgba(168,85,247,.22), transparent 70%)'
-            : 'radial-gradient(700px 420px at 50% 30%, rgba(255,43,209,.26), transparent 68%), radial-gradient(600px 400px at 80% 88%, rgba(127,29,63,.35), transparent 72%)',
+          background: crewWon ? 'radial-gradient(700px 420px at 50% 30%, rgba(34,211,238,.24), transparent 68%), radial-gradient(600px 380px at 20% 90%, rgba(168,85,247,.22), transparent 70%)' : 'radial-gradient(700px 420px at 50% 30%, rgba(255,43,209,.26), transparent 68%), radial-gradient(600px 400px at 80% 88%, rgba(127,29,63,.35), transparent 72%)',
         }}
       />
       {!crewWon && !motionOff && (
@@ -91,23 +81,30 @@ export function WinnerScreen({
         </>
       )}
 
-      <motion.div
-        initial={{ opacity: 0, y: 18, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ type: 'spring', stiffness: 240, damping: 24 }}
-        className="text-center"
-      >
+      <motion.div initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', stiffness: 240, damping: 24 }} className="text-center">
+        {/* one-shot light burst punched behind the title as it lands */}
+        {!motionOff && (
+          <motion.span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 top-1/2 -z-10 block h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{ background: 'radial-gradient(circle, rgba(255,255,255,.5), transparent 62%)' }}
+            initial={{ opacity: 0, scale: 0.45 }}
+            animate={{ opacity: [0, 0.85, 0], scale: [0.45, 1.5, 2.1] }}
+            transition={{ duration: 0.75, delay: 0.22, times: [0, 0.25, 1], ease: 'easeOut' }}
+          />
+        )}
         <Badge tone={crewWon ? 'cyan' : 'magenta'}>{crewWon ? 'crew secured' : 'deception complete'}</Badge>
-        <h1
-          className={`mt-4 font-display text-[clamp(2rem,11vw,3.4rem)] leading-none tracking-[.08em] ${
-            crewWon ? 'text-cyan-glow' : 'text-magenta-glow'
-          } ${!crewWon && !motionOff ? 'animate-glitch' : ''}`}
+        <motion.h1
+          initial={motionOff ? false : { opacity: 0, y: -46, scale: 1.38, filter: 'blur(14px)' }}
+          animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+          transition={{ type: 'spring', stiffness: 300, damping: 16, delay: motionOff ? 0 : 0.1 }}
+          className={`mt-4 font-display text-[clamp(2rem,11vw,3.4rem)] leading-none tracking-[.08em] ${crewWon ? 'text-cyan-glow' : 'text-magenta-glow'} ${!crewWon && !motionOff ? 'animate-glitch' : ''}`}
         >
           {crewWon ? 'TEAM WINS' : 'IMPOSTER WINS'}
-        </h1>
-        <p className="mt-3 font-display text-[12.5px] tracking-[.2em] text-violet-100/85">
+        </motion.h1>
+        <motion.p initial={motionOff ? false : { opacity: 0, y: 8, letterSpacing: '.06em' }} animate={{ opacity: 1, y: 0, letterSpacing: '.2em' }} transition={{ duration: 0.5, delay: motionOff ? 0 : 0.45, ease: [0.16, 1, 0.3, 1] }} className="mt-3 font-display text-[12.5px] tracking-[.2em] text-violet-100/85">
           {verdict}
-        </p>
+        </motion.p>
         {reason && <p className="mx-auto mt-2 max-w-sm text-[12.5px] leading-relaxed text-violet-200/60">{reason}</p>}
       </motion.div>
 
@@ -128,21 +125,13 @@ export function WinnerScreen({
               {revealed.map((player, i) => {
                 const imp = player.role === 'imposter'
                 return (
-                  <motion.li
-                    key={player.id}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.1 + i * 0.05 }}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-violet-500/20 bg-black/30 px-3 py-2"
-                  >
+                  <motion.li key={player.id} initial={motionOff ? false : { opacity: 0, x: -10, scale: 0.96 }} animate={{ opacity: 1, x: 0, scale: 1 }} transition={{ type: 'spring', stiffness: 380, damping: 24, delay: motionOff ? 0 : 0.55 + i * 0.06 }} className="flex items-center justify-between gap-3 rounded-lg border border-violet-500/20 bg-black/30 px-3 py-2">
                     <span className="flex min-w-0 items-center gap-2">
                       <Glyph name={imp ? 'skull' : 'eye'} size={13} className={imp ? 'text-fuchsia-300' : 'text-cyan-300'} />
                       <span className="truncate font-display text-[12px] tracking-[.08em] text-violet-50">{player.name}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
-                      {!player.alive && (
-                        <Badge tone="muted">VOTED OUT R{player.eliminatedRound || '—'}</Badge>
-                      )}
+                      {!player.alive && <Badge tone="muted">VOTED OUT R{player.eliminatedRound || '—'}</Badge>}
                       <Badge tone={imp ? 'magenta' : 'cyan'}>{imp ? 'imposter' : 'crew'}</Badge>
                     </span>
                   </motion.li>
@@ -169,7 +158,9 @@ export function WinnerScreen({
         </Button>
       </div>
 
-      <p className="font-mono text-[10px] tracking-wider text-violet-200/40">round {round} · {crewWon ? 'crew victory' : 'imposter victory'}</p>
+      <p className="font-mono text-[10px] tracking-wider text-violet-200/40">
+        round {round} · {crewWon ? 'crew victory' : 'imposter victory'}
+      </p>
     </motion.div>
   )
 }

@@ -85,12 +85,7 @@ export function SplashScreen({ onDone, duration = 2600 }) {
   const letterFrom = (index) => (index % 2 === 0 ? -1 : 1)
 
   return (
-    <motion.div
-      className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden"
-      initial={{ opacity: 1 }}
-      exit={{ opacity: 0, filter: 'blur(16px)', scale: 1.06 }}
-      style={{ background: 'radial-gradient(1000px 620px at 50% 38%, #1B0440 0%, #0B001A 58%, #040007 100%)' }}
-    >
+    <motion.div className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden" initial={{ opacity: 1 }} exit={{ opacity: 0, filter: 'blur(16px)', scale: 1.06 }} style={{ background: 'radial-gradient(1000px 620px at 50% 38%, #1B0440 0%, #0B001A 58%, #040007 100%)' }}>
       {/* ---- glitch slices: two hard light bars snap across, then are gone --- */}
       {!motionOff &&
         [0, 1].map((i) => (
@@ -177,11 +172,18 @@ export function SplashScreen({ onDone, duration = 2600 }) {
           px-4 + a low clamp cap + nowrap: "IMPOSTER" fits one line from a
           320-px phone up, in landscape included — the old 13.5vw cap let the
           eight letters wrap and split mid-word on narrow screens. */}
-      <motion.div
-        className="relative flex flex-col items-center px-4 py-6 text-center"
-        animate={motionOff ? {} : { x: phase >= 2 ? [0, -8, 7, -4, 3, 0] : 0 }}
-        transition={motionOff ? { duration: 0 } : { duration: 0.42, delay: IMPACT_AT + 0.5, ease: 'easeOut' }}
-      >
+      <motion.div className="relative flex flex-col items-center px-4 py-6 text-center" animate={motionOff ? {} : { x: phase >= 2 ? [0, -8, 7, -4, 3, 0] : 0, scale: phase >= 2 ? [1.055, 0.995, 1] : 1 }} transition={motionOff ? { duration: 0 } : { duration: 0.42, delay: IMPACT_AT + 0.5, ease: 'easeOut' }}>
+        {/* burst of light under the headline as the last letter lands */}
+        {!motionOff && (
+          <motion.span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 top-[52%] -z-10 block h-64 w-[125%] -translate-x-1/2 -translate-y-1/2 rounded-[50%]"
+            style={{ background: 'radial-gradient(ellipse at center, rgba(34,211,238,.34), rgba(168,85,247,.18) 44%, transparent 70%)' }}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={phase >= 2 ? { opacity: [0, 0.9, 0.25], scale: [0.6, 1.25, 1.5] } : { opacity: 0 }}
+            transition={{ duration: 0.7, delay: IMPACT_AT + 0.5, times: [0, 0.3, 1], ease: 'easeOut' }}
+          />
+        )}
         <motion.div className="relative" initial={motionOff ? false : { opacity: 0, scale: 0.72, y: 26, filter: 'blur(20px)' }} animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }} transition={{ duration: motionOff ? 0 : 0.8, ease: [0.16, 1, 0.3, 1], delay: motionOff ? 0 : 0.16 }}>
           {/* targeting reticle — dashed ring that spins up around the mark */}
           {!motionOff && (

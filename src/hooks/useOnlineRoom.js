@@ -133,9 +133,15 @@ export function useOnlineRoom(bank) {
   seatRef.current = seat
 
   /** This tab is deliberately sitting at a table from now on. */
+  /*
+   * This tab is deliberately sitting at a table from now on. The room is also
+   * noted as "last joined" — that note survives an explicit Leave, so the
+   * setup screen can offer a one-tap way BACK to a room worth returning to.
+   */
   const takeSeat = useCallback((next) => {
     const value = { code: next.code, playerId: next.playerId }
     writeSession(STORAGE_KEYS.seat, value)
+    writeJSON(STORAGE_KEYS.lastRoom, { code: next.code, name: next.name || readJSON(STORAGE_KEYS.lastRoom, null)?.name || '' })
     setSeat(value)
   }, [])
 
@@ -288,7 +294,7 @@ export function useOnlineRoom(bank) {
   /* Create / join                                                       */
   /* ------------------------------------------------------------------ */
   const createRoom = useCallback(
-    async (playerName, config) => {
+    async (playerName, config, customCode = null) => {
       if (!isConfigured())
         return {
           ok: false,
@@ -297,10 +303,7 @@ export function useOnlineRoom(bank) {
       setBusy('creating')
       setConnection({ state: 'connecting', error: null, attempt: 0 })
       try {
-        const { room: created, player } = await apiCreateRoom({
-          playerName,
-          config,
-        })
+        const { room: created, player } = await apiCreateRoom({ playerName, config, customCode })
         const next = {
           code: created.code,
           playerId: player.id,
@@ -363,6 +366,21 @@ export function useOnlineRoom(bank) {
     },
     [takeSeat],
   )
+
+  /**
+   * Walk away WITHOUT surrendering the seat. Used when the game is already
+   * over: the player keeps their name on the finished table, so "rejoin my
+   * last room" (same name, same code) walks them straight back to the result
+   * screen — the "get back to the room" option that was missing. A leave in
+   * the middle of a game still gives the seat up, because the table must not
+   * wait for someone who walked.
+   */
+  const detach = useCallback(async () => {
+    unsubscribeRef.current?.()
+    unsubscribeRef.current = null
+    clearSession()
+    setConnection({ state: 'idle', error: null, attempt: 0 })
+  }, [clearSession])
 
   const leave = useCallback(async () => {
     const { code, playerId } = sessionRef.current
@@ -1489,6 +1507,7 @@ export function useOnlineRoom(bank) {
       createRoom,
       joinRoom,
       leave,
+      detach,
       forceOpenRound,
       forceTally,
       waiveGuess,

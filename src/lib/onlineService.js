@@ -32,6 +32,7 @@
 import { isOnlineConfigured, getSupabase, supabaseConfig, resetSupabaseClient, createProbeClient } from './supabase.js'
 import { describeBackend, ensureBackend, getActiveBackend, clearStoredBackend, saveStoredBackend, validateBackendConfig } from './runtimeConfig.js'
 import { ROOM_STATUS } from '../data/constants.js'
+import { validateCustomRoomCode } from './adGate.js'
 import { HOST_VANISH_MS, isPlayerOnline } from './onlineGame.js'
 import { generateRoomCode, uid } from '../utils/random.js'
 import { nameKey, normalizeName, validatePlayerName, validateRoomCode } from '../utils/validate.js'
@@ -131,7 +132,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * flattened into UNKNOWN, which is why a mistyped room code produced
  * "Something went wrong talking to the room server" instead of naming it.
  */
-const KNOWN_ERROR_CODES = new Set(['NOT_CONFIGURED', 'NOT_FOUND', 'FULL', 'STARTED', 'EXPIRED', 'TERMINATED', 'SCHEMA_MISSING', 'NETWORK', 'DUPLICATE_CODE', 'FORBIDDEN', 'INVALID_CODE', 'INVALID_NAME', 'HOST_PROTECTED'])
+const KNOWN_ERROR_CODES = new Set(['NOT_CONFIGURED', 'NOT_FOUND', 'FULL', 'STARTED', 'EXPIRED', 'TERMINATED', 'SCHEMA_MISSING', 'NETWORK', 'DUPLICATE_CODE', 'FORBIDDEN', 'INVALID_CODE', 'INVALID_NAME', 'HOST_PROTECTED', 'CODE_TAKEN'])
 
 export function classifyError(error) {
   const message = String(error?.message || error || '')
@@ -179,6 +180,10 @@ export const friendlyRoomError = (error) => {
       return 'The host closed this room.'
     case 'HOST_PROTECTED':
       return 'The host cannot be removed from their own room.'
+    case 'CODE_TAKEN':
+      /* Someone at another table grabbed the custom code the player picked.
+         Say plainly what happened — they choose a new one or let a code roll. */
+      return error.message || 'That code is already powering a live room. Pick another — or let us roll one.'
     default:
       return 'Something went wrong talking to the room server. Please try again.'
   }
@@ -412,16 +417,33 @@ async function mutateRoom(code, transform, extraRow = {}) {
  * Create a room, retrying on the (astronomically unlikely) code collision.
  * @returns {Promise<{room: object, player: object}>}
  */
-export async function createRoom({ playerName, config }) {
+export async function createRoom({ playerName, config, customCode = null }) {
   const client = await requireClient()
   const nameCheck = validatePlayerName(playerName)
   if (!nameCheck.ok) fail('INVALID_NAME', nameCheck.error)
+
+  /*
+   * A custom code (unlocked behind the sponsor break in the setup screen) is
+   * held to the same readability rules as a generated one — six characters,
+   * never an ambiguous glyph — and it must be free right now. On a collision
+   * the room fails loudly instead of silently swapping in a random code:
+   * the player chose THIS code on purpose.
+   */
+  let pinned = null
+  if (customCode != null && String(customCode).trim() !== '') {
+    const check = validateCustomRoomCode(customCode)
+    if (!check.ok) fail('INVALID_CODE', check.error)
+    pinned = check.value
+    if (await roomExists(pinned)) {
+      fail('CODE_TAKEN', 'That code is already powering a live room. Pick another — or let us roll one.')
+    }
+  }
 
   const host = makePlayer({ name: nameCheck.value, isHost: true })
   const expiresAt = new Date(now() + supabaseConfig.roomTtlMinutes * 60_000).toISOString()
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    const code = generateRoomCode()
+    const code = attempt === 0 && pinned ? pinned : generateRoomCode()
     const room = normalizeRoom(
       {
         code,
@@ -476,6 +498,8 @@ export async function createRoom({ playerName, config }) {
     }
     const friendly = classifyError(error)
     if (friendly.code !== 'DUPLICATE_CODE') throw friendly
+    /* A pinned custom code never quietly becomes a random one. */
+    if (pinned) fail('CODE_TAKEN', 'That code was grabbed a heartbeat before you. Pick another — or let us roll one.')
     await sleep(80)
   }
   fail('DUPLICATE_CODE', 'Could not allocate a free room code')

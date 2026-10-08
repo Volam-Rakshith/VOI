@@ -88,7 +88,12 @@ await build({
 const virtualConsole = new VirtualConsole()
 virtualConsole.on('jsdomError', (error) => {
   if (/SOMETHING|cannot read|undefined|not a function/i.test(String(error?.stack || error?.message || ''))) {
-    process.stdout.write(`\n[jsdom-error] ${String(error?.stack || error?.message).split('\n').slice(0, 6).join('\n')}\n`)
+    process.stdout.write(
+      `\n[jsdom-error] ${String(error?.stack || error?.message)
+        .split('\n')
+        .slice(0, 6)
+        .join('\n')}\n`,
+    )
   }
   // jsdom has no canvas backend — the ambient particle layer handles it.
   if (/Not implemented/.test(error.message)) return
@@ -100,15 +105,12 @@ virtualConsole.on('warn', (message) => {
   if (/Warning: /.test(String(message))) consoleErrors.push(String(message))
 })
 
-const dom = new JSDOM(
-  `<!doctype html><html><head></head><body><div id="boot">Loading</div><div id="root"></div></body></html>`,
-  {
-    url: 'https://example.com/repo-name/',
-    runScripts: 'dangerously',
-    pretendToBeVisual: true,
-    virtualConsole,
-  },
-)
+const dom = new JSDOM(`<!doctype html><html><head></head><body><div id="boot">Loading</div><div id="root"></div></body></html>`, {
+  url: 'https://example.com/repo-name/',
+  runScripts: 'dangerously',
+  pretendToBeVisual: true,
+  virtualConsole,
+})
 
 const { window } = dom
 
@@ -126,10 +128,35 @@ window.matchMedia =
     dispatchEvent: () => false,
   }))
 const noopContext = new Proxy(
-  { canvas: null, save() {}, restore() {}, beginPath() {}, closePath() {}, fill() {}, stroke() {}, arc() {}, rect() {}, moveTo() {}, lineTo() {},
-    clearRect() {}, fillRect() {}, strokeRect() {}, drawImage() {}, createLinearGradient: () => ({ addColorStop() {} }),
-    createRadialGradient: () => ({ addColorStop() {} }), createPattern: () => ({}), setTransform() {}, translate() {}, rotate() {}, scale() {},
-    getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {}, measureText: () => ({ width: 0 }), fillText() {}, strokeText() {} },
+  {
+    canvas: null,
+    save() {},
+    restore() {},
+    beginPath() {},
+    closePath() {},
+    fill() {},
+    stroke() {},
+    arc() {},
+    rect() {},
+    moveTo() {},
+    lineTo() {},
+    clearRect() {},
+    fillRect() {},
+    strokeRect() {},
+    drawImage() {},
+    createLinearGradient: () => ({ addColorStop() {} }),
+    createRadialGradient: () => ({ addColorStop() {} }),
+    createPattern: () => ({}),
+    setTransform() {},
+    translate() {},
+    rotate() {},
+    scale() {},
+    getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+    putImageData() {},
+    measureText: () => ({ width: 0 }),
+    fillText() {},
+    strokeText() {},
+  },
   { get: (target, prop) => (prop in target ? target[prop] : () => {}) },
 )
 window.HTMLCanvasElement.prototype.getContext = () => noopContext
@@ -159,8 +186,7 @@ const clickMatching = async (pattern, ms = 260) => {
 const pointer = (el) => {
   el?.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
 }
-const findByText = (needle, selector = 'button, a, h1, h2, p, span, div') =>
-  [...window.document.querySelectorAll(selector)].find((el) => (el.textContent || '').includes(needle))
+const findByText = (needle, selector = 'button, a, h1, h2, p, span, div') => [...window.document.querySelectorAll(selector)].find((el) => (el.textContent || '').includes(needle))
 /** Poll until `predicate` is true (or the budget runs out). Returns the result. */
 const waitUntil = async (predicate, timeout = 1500, step = 50) => {
   const deadline = Date.now() + timeout
@@ -188,9 +214,7 @@ const navigate = async (route) => {
 /* ------------------------------------------------------------------ */
 process.stdout.write('\n\x1b[36mUI SMOKE TEST (jsdom)\x1b[0m\n')
 
-window.eval(
-  `(function(){ ${await (await import('node:fs/promises')).readFile(bundlePath, 'utf8')} })()`,
-)
+window.eval(`(function(){ ${await (await import('node:fs/promises')).readFile(bundlePath, 'utf8')} })()`)
 
 let renderError = null
 try {
@@ -209,26 +233,10 @@ try {
 const splashEl = () => window.document.querySelector('[class*="z-[200]"]')
 const splashText = splashEl()?.textContent || ''
 const splashNameCount = (splashText.match(/IMPOSTER/g) || []).length
-record(
-  'the splash shows the game name exactly once',
-  Boolean(splashEl()) && splashNameCount === 1,
-  `found ${splashNameCount} occurrences: ${splashText.replace(/\s+/g, ' ').slice(0, 140)}`,
-)
-record(
-  'the splash shows the full title letter by letter',
-  splashEl()?.querySelector('h1')?.getAttribute('aria-label') === 'VOTE OUT IMPOSTER',
-  `h1 label: ${splashEl()?.querySelector('h1')?.getAttribute('aria-label')}`,
-)
-record(
-  'the splash shows the studio line exactly once',
-  (splashText.match(/VR DEVELOPMENTS/g) || []).length === 1,
-  `found ${(splashText.match(/VR DEVELOPMENTS/g) || []).length}`,
-)
-record(
-  'the splash credits the studio as "by VR DEVELOPMENTS"',
-  /by\s+VR DEVELOPMENTS/i.test(splashText.replace(/\s+/g, ' ')),
-  splashText.replace(/\s+/g, ' ').slice(0, 120),
-)
+record('the splash shows the game name exactly once', Boolean(splashEl()) && splashNameCount === 1, `found ${splashNameCount} occurrences: ${splashText.replace(/\s+/g, ' ').slice(0, 140)}`)
+record('the splash shows the full title letter by letter', splashEl()?.querySelector('h1')?.getAttribute('aria-label') === 'VOTE OUT IMPOSTER', `h1 label: ${splashEl()?.querySelector('h1')?.getAttribute('aria-label')}`)
+record('the splash shows the studio line exactly once', (splashText.match(/VR DEVELOPMENTS/g) || []).length === 1, `found ${(splashText.match(/VR DEVELOPMENTS/g) || []).length}`)
+record('the splash credits the studio as "by VR DEVELOPMENTS"', /by\s+VR DEVELOPMENTS/i.test(splashText.replace(/\s+/g, ' ')), splashText.replace(/\s+/g, ' ').slice(0, 120))
 
 /* Splash → menu */
 await wait(2000)
@@ -236,15 +244,8 @@ record('splash hands over to the main menu', text().includes('PLAY LOCAL') && te
 /* Let the splash finish its exit animation before counting the menu. */
 await waitUntil(() => !splashEl(), 1500)
 const menuNameCount = (text().match(/IMPOSTER/g) || []).length
-record(
-  'the main menu shows the name exactly once',
-  menuNameCount === 1,
-  `found ${menuNameCount} occurrences: ${text().replace(/\s+/g, ' ').slice(0, 140)}`,
-)
-record(
-  'the main menu wordmark reads VOTE OUT IMPOSTER',
-  /VOTE OUT\s*IMPOSTER/i.test(window.document.body.textContent.replace(/\s+/g, ' ')),
-)
+record('the main menu shows the name exactly once', menuNameCount === 1, `found ${menuNameCount} occurrences: ${text().replace(/\s+/g, ' ').slice(0, 140)}`)
+record('the main menu wordmark reads VOTE OUT IMPOSTER', /VOTE OUT\s*IMPOSTER/i.test(window.document.body.textContent.replace(/\s+/g, ' ')))
 record('pre-hydration boot plate is removed', !window.document.getElementById('boot'))
 record('studio credit is present', text().includes('Crafted with passion by VR DEVELOPMENTS'))
 
@@ -345,13 +346,35 @@ click(plusFor('Turn length'))
 await wait(160)
 record('turn length keeps stepping through legal values', stepperValue('Turn length') === '60s', `saw ${stepperValue('Turn length')}`)
 
+/*
+ * The sponsor-gated custom code (v1.0.16): the field exists on the create tab,
+ * it is LOCKED until the break is watched, the break opens with a countdown
+ * skip that is disabled while it counts, and walking out early unlocks nothing.
+ */
+const codeField = [...window.document.querySelectorAll('input')].find((i) => (i.getAttribute('aria-label') || '') === 'custom room code')
+record('creating a room offers the custom code field', Boolean(codeField), 'no aria-labelled custom room code input on the create tab')
+record('the code field is locked before any watching', codeField ? codeField.disabled === true : false, 'an unlocked input is a gateless gate')
+const watchAd = buttonMatching(/Watch ad/i)
+record('the unlock rides on a watch-ad button', Boolean(watchAd))
+if (watchAd) {
+  click(watchAd)
+  await wait(520)
+  const dialog = window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]')
+  record('the sponsor break opens as a modal', Boolean(dialog))
+  if (dialog) {
+    record('the plate is honest about missing clips', /AD SPACE/.test(dialog.innerHTML) || /<video/i.test(dialog.innerHTML), 'neither video element nor the placeholder plate rendered')
+    const skipEarly = buttonMatching(/Skip in \d+s/i)
+    record('skip is disabled and counts down while watching', Boolean(skipEarly) && skipEarly.disabled === true, `saw: ${skipEarly ? skipEarly.textContent : 'no countdown button'}`)
+    const leaveBreak = buttonMatching(/not now/i)
+    click(leaveBreak)
+    await wait(340)
+    record('walking out of the break early unlocks nothing', !window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]') && codeField?.disabled === true)
+  }
+}
+
 /* The dropdown is the themed one, and still a real select underneath. */
 const categoryPicker = window.document.querySelector('#online-category')
-record(
-  'the category dropdown is the themed glass control',
-  Boolean(categoryPicker) && categoryPicker.tagName === 'SELECT' && Boolean(categoryPicker.closest('.select-float')),
-  categoryPicker ? `${categoryPicker.tagName} in ${categoryPicker.parentElement?.className}` : 'not found',
-)
+record('the category dropdown is the themed glass control', Boolean(categoryPicker) && categoryPicker.tagName === 'SELECT' && Boolean(categoryPicker.closest('.select-float')), categoryPicker ? `${categoryPicker.tagName} in ${categoryPicker.parentElement?.className}` : 'not found')
 
 /* ------------------------------------------------------------------ */
 /* 7c. BLACK BOX → BACKEND: publish the values for everyone            */
@@ -364,15 +387,8 @@ const backendTab = buttonMatching(/^BACKEND$/) || findByText('BACKEND', 'button'
 click(backendTab)
 await wait(360)
 const preBlock = [...window.document.querySelectorAll('pre')].find((el) => (el.textContent || '').includes('supabaseUrl'))
-record(
-  'the backend panel hands over a ready runtime-config.json',
-  Boolean(preBlock) && /supabaseAnonKey/.test(preBlock.textContent),
-  preBlock ? preBlock.textContent.slice(0, 60) : 'no config block rendered',
-)
-record(
-  'and explains that publishing it configures every device',
-  /Publish the file below once/i.test(text()) || /every visitor/i.test(text()),
-)
+record('the backend panel hands over a ready runtime-config.json', Boolean(preBlock) && /supabaseAnonKey/.test(preBlock.textContent), preBlock ? preBlock.textContent.slice(0, 60) : 'no config block rendered')
+record('and explains that publishing it configures every device', /Publish the file below once/i.test(text()) || /every visitor/i.test(text()))
 /* Clean up so the rest of the run is unaffected. */
 window.localStorage.removeItem('vrdev.imposter.backend.config')
 window.localStorage.removeItem('vrdev.imposter.backend.config')
@@ -396,19 +412,17 @@ record('the caught-imposter guess is explained in the rules', /One guess/i.test(
 
 /* Settings */
 await navigate('settings')
-record('settings exposes every control', ['Sound effects', 'Animations', 'Reduced motion', 'Haptics', 'LOCAL DATA', 'ABOUT'].every((needle) => text().includes(needle)))
+record(
+  'settings exposes every control',
+  ['Sound effects', 'Animations', 'Reduced motion', 'Haptics', 'LOCAL DATA', 'ABOUT'].every((needle) => text().includes(needle)),
+)
 
 /* Online routes render their configuration fallback instead of breaking */
 await navigate('online')
-record(
-  'online screen offers backend setup instead of dead-ending',
-  /connect a backend/i.test(text()) || /create room/i.test(text()),
-  text().slice(0, 120),
-)
+record('online screen offers backend setup instead of dead-ending', /connect a backend/i.test(text()) || /create room/i.test(text()), text().slice(0, 120))
 
 await navigate('lobby?room=A7KQMN')
 record('room deep link renders the seat prompt', text().includes('TAKE YOUR SEAT') || text().includes('A7KQMN'))
-
 
 /* Unknown route falls back to home instead of a blank screen */
 await navigate('does-not-exist')
@@ -420,10 +434,7 @@ record('unknown routes fall back to the menu', text().includes('PLAY LOCAL'))
 process.stdout.write('\n\x1b[36mFULL LOCAL ROUND\x1b[0m\n')
 
 await navigate('local')
-record(
-  'pass & play setup renders a 6 player roster by default',
-  text().includes('Pass & play setup') && window.document.querySelectorAll('input[placeholder="Enter name"]').length === 6,
-)
+record('pass & play setup renders a 6 player roster by default', text().includes('Pass & play setup') && window.document.querySelectorAll('input[placeholder="Enter name"]').length === 6)
 record('setup blocks the start until names are filled', Boolean(buttonMatching(/Deal the secrets/)?.disabled))
 
 const inputs = [...window.document.querySelectorAll('input[placeholder="Enter name"]')]
@@ -610,33 +621,14 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
   if (!ended) process.stdout.write(`[loop-trail]\n  ${trail.join('\n  ')}\n`)
   record('the game keeps running until one side is gone', ended, `ended after ${roundsPlayed} round(s)`)
   record('a caught imposter is offered a final guess', guessScreenSeen || ended, 'guess screen only fires when an imposter is caught')
-  record(
-    'the caught imposter types the word on a screen nobody else sees',
-    guessScreenSeen ? guessInputSeen : true,
-    guessScreenSeen ? 'the accused typed into #final-guess' : 'no imposter was caught before the game ended',
-  )
+  record('the caught imposter types the word on a screen nobody else sees', guessScreenSeen ? guessInputSeen : true, guessScreenSeen ? 'the accused typed into #final-guess' : 'no imposter was caught before the game ended')
   record('no screen ever accuses a living player mid-game', !roleLeaked)
-  record(
-    'cards are dealt once, not every round',
-    roundsPlayed < 2 || revealLooks <= 8,
-    `${revealLooks} card screens across ${roundsPlayed} round(s)`,
-  )
-  record(
-    'the result says what the vote removed, in plain words',
-    outcomeSeen,
-    outcomeSeen ? 'crewmate / imposter outcome line seen' : 'no result line matched',
-  )
-  record(
-    "the final board dates every elimination by round ('VOTED OUT R1')",
-    /VOTED OUT R\d/.test(text()),
-    text().replace(/\s+/g, ' ').slice(0, 160),
-  )
+  record('cards are dealt once, not every round', roundsPlayed < 2 || revealLooks <= 8, `${revealLooks} card screens across ${roundsPlayed} round(s)`)
+  record('the result says what the vote removed, in plain words', outcomeSeen, outcomeSeen ? 'crewmate / imposter outcome line seen' : 'no result line matched')
+  record("the final board dates every elimination by round ('VOTED OUT R1')", /VOTED OUT R\d/.test(text()), text().replace(/\s+/g, ' ').slice(0, 160))
   record('the winner screen states the verdict in plain words', /WINS|WIN$|THE CREW|THE IMPOSTERS/i.test(text()))
   record('winner screen reveals the secret word', /the secret word was/i.test(text()))
-  record(
-    'winner screen lists every player with a role',
-    (text().match(/imposter/gi) || []).length >= 2 && /crew/i.test(text()),
-  )
+  record('winner screen lists every player with a role', (text().match(/imposter/gi) || []).length >= 2 && /crew/i.test(text()))
 
   // 6. Restart
   const replayed = await clickMatching(/Play again/, 900)
@@ -650,8 +642,7 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
    cannot be faked, so it is simulated the way the app sees it: the marker the
    unload handlers leave behind, plus a remount of the page (home → local).  */
 {
-  const mark = () =>
-    window.sessionStorage.setItem('vrdev.imposter.reload.v1', JSON.stringify({ mode: 'local', at: Date.now() }))
+  const mark = () => window.sessionStorage.setItem('vrdev.imposter.reload.v1', JSON.stringify({ mode: 'local', at: Date.now() }))
   const remount = async () => {
     await navigate('home')
     await wait(280)
@@ -663,20 +654,11 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
   await remount()
   const warned = /HUGE WARNING/i.test(text()) && /REFRESHING RESETS/i.test(text())
   record('a reload mid-game raises the huge refresh warning', warned, text().replace(/\s+/g, ' ').slice(0, 190))
-  record(
-    'the warning offers both ways out',
-    Boolean(buttonMatching(/CONTINUE GAME/i)) && Boolean(buttonMatching(/LEAVE/i)),
-  )
+  record('the warning offers both ways out', Boolean(buttonMatching(/CONTINUE GAME/i)) && Boolean(buttonMatching(/LEAVE/i)))
 
   const kept = await clickMatching(/CONTINUE GAME/i, 700)
   await wait(420)
-  record(
-    'continue game keeps the table where it was',
-    kept &&
-      !/HUGE WARNING/i.test(text()) &&
-      /TAP TO REVEAL|pass the device to|Hand to next player|Everyone is ready|Start round \d/i.test(text()),
-    text().replace(/\s+/g, ' ').slice(0, 190),
-  )
+  record('continue game keeps the table where it was', kept && !/HUGE WARNING/i.test(text()) && /TAP TO REVEAL|pass the device to|Hand to next player|Everyone is ready|Start round \d/i.test(text()), text().replace(/\s+/g, ' ').slice(0, 190))
 
   // The other option really does end it — and forgets the saved table.
   mark()
@@ -684,11 +666,7 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
   const leaving = await clickMatching(/LEAVE \[REFRESH\]/, 800)
   await wait(520)
   record('leave [refresh] ends the game and returns to the menu', leaving && /PLAY LOCAL/i.test(text()), text().slice(0, 160))
-  record(
-    'leaving clears the saved table',
-    window.sessionStorage.getItem('vrdev.imposter.localgame.v1') === null,
-    `snapshot: ${window.sessionStorage.getItem('vrdev.imposter.localgame.v1')}`,
-  )
+  record('leaving clears the saved table', window.sessionStorage.getItem('vrdev.imposter.localgame.v1') === null, `snapshot: ${window.sessionStorage.getItem('vrdev.imposter.localgame.v1')}`)
   record('and clears the reload marker', window.sessionStorage.getItem('vrdev.imposter.reload.v1') === null)
 }
 
@@ -776,10 +754,8 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
 /* ------------------------------------------------------------------ */
 {
   const { runtimeConfig, supabaseLib } = window.__backend
-  const ANON_KEY =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogImFub24ifQ.' + 'x'.repeat(60)
-  const SERVICE_KEY =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogInNlcnZpY2Vfcm9sZSJ9.' + 'y'.repeat(60)
+  const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogImFub24ifQ.' + 'x'.repeat(60)
+  const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjogInNlcnZpY2Vfcm9sZSJ9.' + 'y'.repeat(60)
 
   const setInput = (input, value) => {
     // React tracks the value on the node, so set the native setter then fire.
@@ -799,20 +775,13 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   record('online mode offers a way in when no backend is set', /I'm the organiser/i.test(text()) && /Check again/i.test(text()))
 
   record('the setup screen explains what is needed', /Project URL/i.test(text()) && /anon key/i.test(text()))
-  record(
-    'the tile does not demand a rebuild or file edit',
-    /no rebuild/i.test(text()) || /nothing to edit in code/i.test(text()),
-  )
+  record('the tile does not demand a rebuild or file edit', /no rebuild/i.test(text()) || /nothing to edit in code/i.test(text()))
 
   /* An invite link opened before the organiser has published the room server
      must speak to the PLAYER, never ask them for a key. */
   await navigate('lobby?room=A7KQMN')
   await wait(320)
-  record(
-    'an invite link waits for the room server instead of asking for keys',
-    /Waiting for the room server/i.test(text()) && /Check again/i.test(text()) && !/described in the README/i.test(text()),
-    text().replace(/\s+/g, ' ').slice(0, 200),
-  )
+  record('an invite link waits for the room server instead of asking for keys', /Waiting for the room server/i.test(text()) && /Check again/i.test(text()) && !/described in the README/i.test(text()), text().replace(/\s+/g, ' ').slice(0, 200))
 
   await navigate('online')
   await wait(300)
@@ -827,10 +796,7 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   setInput(urlInput, 'https://abcdefghijklm.supabase.co')
   setInput(keyInput, 'nope')
   await clickMatching(/Save & use/i, 320)
-  record(
-    'a bad key is refused with a clear reason',
-    /too short/i.test(text()) && !/undefined|\[object|TypeError/.test(text()),
-  )
+  record('a bad key is refused with a clear reason', /too short/i.test(text()) && !/undefined|\[object|TypeError/.test(text()))
   record('nothing was stored from a rejected save', runtimeConfig.hasStoredBackend() === false)
 
   // The service-role key is refused on purpose — that one must never ship.
@@ -843,11 +809,7 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   setInput(urlInput, 'https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo')
   setInput(keyInput, ANON_KEY)
   await clickMatching(/Save & use/i, 420)
-  record(
-    'a pasted dashboard URL is converted to the project API URL',
-    runtimeConfig.describeBackend().url === 'https://uepgrjiktejmvyupvzlo.supabase.co',
-    `resolved to ${runtimeConfig.describeBackend().url}`,
-  )
+  record('a pasted dashboard URL is converted to the project API URL', runtimeConfig.describeBackend().url === 'https://uepgrjiktejmvyupvzlo.supabase.co', `resolved to ${runtimeConfig.describeBackend().url}`)
   record('the panel shows the recovered project host', /uepgrjiktejmvyupvzlo\.supabase\.co/.test(text()))
   runtimeConfig.clearStoredBackend()
 
@@ -876,11 +838,7 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
 
   const client = supabaseLib.getSupabase()
   if (client) {
-    record(
-      'the live supabase client points at the pasted project',
-      client.supabaseUrl === 'https://abcdefghijklm.supabase.co',
-      `client url was ${client.supabaseUrl}`,
-    )
+    record('the live supabase client points at the pasted project', client.supabaseUrl === 'https://abcdefghijklm.supabase.co', `client url was ${client.supabaseUrl}`)
   } else {
     // No WebSocket in this runtime: the failure must still be explained.
     record('client creation failure is explained rather than swallowed', Boolean(supabaseLib.getSupabaseError()))
@@ -902,11 +860,7 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   await navigate('home')
   await navigate('online')
   await wait(400)
-  record(
-    'forgetting device values returns to the setup card',
-    /Waiting for the room server/i.test(text()) && /I'm the organiser/i.test(text()) && /Check again/i.test(text()),
-    text().slice(0, 160),
-  )
+  record('forgetting device values returns to the setup card', /Waiting for the room server/i.test(text()) && /I'm the organiser/i.test(text()) && /Check again/i.test(text()), text().slice(0, 160))
   record('clearing really clears storage', runtimeConfig.hasStoredBackend() === false && supabaseLib.isOnlineConfigured() === false)
 }
 
@@ -922,18 +876,18 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   const hasPattern = (pattern) => vibes().some((fired) => JSON.stringify(fired) === JSON.stringify(pattern))
 
   /* ---- the pattern table itself ---------------------------------- */
-  record('every documented game event has a haptic cue', [
-    'gameStart', 'roleReveal', 'votingStart', 'voteSubmitted', 'timerWarning',
-    'timerEnd', 'eliminated', 'votingEnded', 'result', 'chaosRound', 'chaosAll',
-  ].every((name) => name in HAPTIC))
   record(
-    'no cue is role-specific (role must never be readable from a buzz)',
-    !Object.keys(HAPTIC).some((name) => /crew|imposter|role_(?!)/i.test(name) && !/roleReveal|roleHidden/.test(name)),
+    'every documented game event has a haptic cue',
+    ['gameStart', 'roleReveal', 'votingStart', 'voteSubmitted', 'timerWarning', 'timerEnd', 'eliminated', 'votingEnded', 'result', 'chaosRound', 'chaosAll'].every((name) => name in HAPTIC),
   )
-  record('cues are short enough to stay discreet', Object.values(HAPTIC).every((pattern) => {
-    const values = Array.isArray(pattern) ? pattern : [pattern]
-    return values.filter((_, i) => (Array.isArray(pattern) ? i % 2 === 0 : true)).every((ms) => ms <= 60)
-  }))
+  record('no cue is role-specific (role must never be readable from a buzz)', !Object.keys(HAPTIC).some((name) => /crew|imposter|role_(?!)/i.test(name) && !/roleReveal|roleHidden/.test(name)))
+  record(
+    'cues are short enough to stay discreet',
+    Object.values(HAPTIC).every((pattern) => {
+      const values = Array.isArray(pattern) ? pattern : [pattern]
+      return values.filter((_, i) => (Array.isArray(pattern) ? i % 2 === 0 : true)).every((ms) => ms <= 60)
+    }),
+  )
   clearVibes()
   record('firing a cue without a vibrate helper is a safe no-op', haptic('roleReveal', undefined) === false)
   record('an unknown cue never throws', haptic('not_a_real_cue', (p) => window.navigator.vibrate(p)) === false)
@@ -1009,7 +963,7 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
     chaosGuard += 1
     const advanced = await clickMatching(/Hand to next player|Everyone is ready/, 650)
     if (!advanced) break
-    const reveal = window.document.querySelector('[aria-label="Reveal your secret"]') || await waitUntil(() => window.document.querySelector('[aria-label="Reveal your secret"]'), 900)
+    const reveal = window.document.querySelector('[aria-label="Reveal your secret"]') || (await waitUntil(() => window.document.querySelector('[aria-label="Reveal your secret"]'), 900))
     if (!reveal) break
     click(reveal)
     await waitUntil(() => window.document.querySelector('[aria-label="Hide your secret"]'), 900)
@@ -1062,11 +1016,7 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
     }
   }
   const chaosCue = chaosVoted ? Boolean(await waitUntil(() => vibes().length > 0, 900)) : /nobody to catch|no imposter/i.test(text())
-  record(
-    'submitting a vote fires a cue',
-    chaosCue,
-    chaosVoted ? JSON.stringify(vibes()) : 'no ballot this round (chaos dealt no imposter)',
-  )
+  record('submitting a vote fires a cue', chaosCue, chaosVoted ? JSON.stringify(vibes()) : 'no ballot this round (chaos dealt no imposter)')
 
   /* ---- the Haptics setting switches all of it off ---------------- */
   await navigate('settings')
@@ -1103,7 +1053,6 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
       await wait(240)
     }
   }
-
 }
 
 /* ------------------------------------------------------------------ */

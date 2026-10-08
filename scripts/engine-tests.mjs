@@ -40,7 +40,12 @@ function test(name, fn) {
   try {
     const result = fn()
     if (result && typeof result.then === 'function') {
-      pending.push(result.then(() => report(name, null), (error) => report(name, error)))
+      pending.push(
+        result.then(
+          () => report(name, null),
+          (error) => report(name, error),
+        ),
+      )
       return
     }
     report(name, null)
@@ -68,6 +73,7 @@ const limits = await import('../src/data/constants.js')
 const snapshot = await import('../src/lib/gameSnapshot.js')
 const refreshGuard = await import('../src/lib/refreshGuard.js')
 const sessionStore = await import('../src/utils/storage.js')
+const adGate = await import('../src/lib/adGate.js')
 
 const SECRET = { word: { word: 'Umbrella', categoryId: 'everyday', categoryName: 'Everyday', difficulty: 'easy', decoy: 'Raincoat' } }
 /** The engine stores the payload unwrapped — this is the word players would guess. */
@@ -242,7 +248,10 @@ test('a split vote removes nobody and keeps the game running', () => {
   assert.equal(game.lastResult.tie, true)
   assert.equal(game.lastResult.eliminatedId, null)
   assert.equal(game.winner, null, 'a split vote can never end the game')
-  assert.ok(game.players.every((p) => p.alive), 'nobody is removed on a split vote')
+  assert.ok(
+    game.players.every((p) => p.alive),
+    'nobody is removed on a split vote',
+  )
   assert.equal(game.phase, 'result')
 })
 
@@ -267,13 +276,15 @@ test('a two-player tie ends the round instead of looping forever', () => {
 })
 
 test('a tie with three or more players still removes nobody', () => {
-  const game = engine.resolveRound(((g) => {
-    const [a, b, c] = g.players.map((p) => p.id)
-    let next = engine.castVote(g, a, b)
-    next = engine.castVote(next, b, c)
-    next = engine.castVote(next, c, a)
-    return next
-  })(voteSetup({ count: 3 })))
+  const game = engine.resolveRound(
+    ((g) => {
+      const [a, b, c] = g.players.map((p) => p.id)
+      let next = engine.castVote(g, a, b)
+      next = engine.castVote(next, b, c)
+      next = engine.castVote(next, c, a)
+      return next
+    })(voteSetup({ count: 3 })),
+  )
   assert.equal(game.lastResult.tie, true)
   assert.equal(game.winner, null, 'only a two-player tie is a stalemate')
   assert.ok(game.players.every((p) => p.alive))
@@ -282,9 +293,11 @@ test('a tie with three or more players still removes nobody', () => {
 test('a caught imposter gets one guess before anything is decided', () => {
   let game = voteSetup({ count: 5 })
   const imposter = game.players.find((p) => p.role === 'imposter')
-  game.players.filter((p) => p.id !== imposter.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, imposter.id)
-  })
+  game.players
+    .filter((p) => p.id !== imposter.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, imposter.id)
+    })
   game = engine.resolveRound(game)
 
   assert.equal(game.phase, 'guess', 'the accused is handed the device to guess')
@@ -296,9 +309,11 @@ test('a caught imposter gets one guess before anything is decided', () => {
 test('a correct final guess hands the whole game to the imposters', () => {
   let game = voteSetup({ count: 6, imposters: 2 })
   const target = game.players.find((p) => p.role === 'imposter')
-  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, target.id)
-  })
+  game.players
+    .filter((p) => p.id !== target.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, target.id)
+    })
   game = engine.resolveRound(game)
   const oneLeft = game.players.filter((p) => p.role === 'imposter' && p.alive).length
   assert.equal(oneLeft, 1, 'a second imposter is still in play')
@@ -313,9 +328,11 @@ test('a correct final guess hands the whole game to the imposters', () => {
 test('a wrong final guess just removes that imposter', () => {
   let game = voteSetup({ count: 6, imposters: 2 })
   const target = game.players.find((p) => p.role === 'imposter')
-  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, target.id)
-  })
+  game.players
+    .filter((p) => p.id !== target.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, target.id)
+    })
   game = engine.resolveRound(game)
   game = engine.submitGuess(game, 'definitely not the word')
 
@@ -327,9 +344,11 @@ test('a wrong final guess just removes that imposter', () => {
 test('guessing the word when you are the last imposter wins it outright', () => {
   let game = voteSetup({ count: 5 })
   const target = game.players.find((p) => p.role === 'imposter')
-  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, target.id)
-  })
+  game.players
+    .filter((p) => p.id !== target.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, target.id)
+    })
   game = engine.resolveRound(game)
   assert.equal(game.winner, null)
   game = engine.submitGuess(game, SECRET_WORD.toUpperCase())
@@ -340,9 +359,11 @@ test('guesses are forgiving about case, spacing and punctuation', () => {
   const build = () => {
     let game = voteSetup({ count: 5 })
     const target = game.players.find((p) => p.role === 'imposter')
-    game.players.filter((p) => p.id !== target.id).forEach((voter) => {
-      game = engine.castVote(game, voter.id, target.id)
-    })
+    game.players
+      .filter((p) => p.id !== target.id)
+      .forEach((voter) => {
+        game = engine.castVote(game, voter.id, target.id)
+      })
     return engine.resolveRound(game)
   }
   const awkward = build()
@@ -370,9 +391,11 @@ test('the crew wins only when the last imposter is gone', () => {
   const imposters = game.players.filter((p) => p.role === 'imposter')
 
   // First catch → guess phase → wrong guess → still playing.
-  game.players.filter((p) => p.id !== imposters[0].id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, imposters[0].id)
-  })
+  game.players
+    .filter((p) => p.id !== imposters[0].id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, imposters[0].id)
+    })
   game = engine.resolveRound(game)
   game = engine.submitGuess(game, 'nope')
   assert.equal(game.winner, null, 'two imposters are still in play')
@@ -381,14 +404,19 @@ test('the crew wins only when the last imposter is gone', () => {
   assert.equal(game.round, 2)
   /* Ordinary rounds skip the card pass now — nobody learns anything new. */
   assert.equal(game.phase, 'briefing', 'round two opens straight into the briefing')
-  assert.ok(game.players.every((p) => p.revealed), 'the roster still counts as having seen its roles')
+  assert.ok(
+    game.players.every((p) => p.revealed),
+    'the roster still counts as having seen its roles',
+  )
 
   // Second catch → wrong guess → still playing.
   game = toVoting(game)
   const target2 = game.players.find((p) => p.role === 'imposter' && p.alive)
-  game.players.filter((p) => p.alive && p.id !== target2.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, target2.id)
-  })
+  game.players
+    .filter((p) => p.alive && p.id !== target2.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, target2.id)
+    })
   game = engine.resolveRound(game)
   game = engine.submitGuess(game, 'nope')
   assert.equal(game.winner, null)
@@ -397,9 +425,11 @@ test('the crew wins only when the last imposter is gone', () => {
   game = engine.nextRound(game)
   game = toVoting(game)
   const last = game.players.find((p) => p.role === 'imposter' && p.alive)
-  game.players.filter((p) => p.alive && p.id !== last.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, last.id)
-  })
+  game.players
+    .filter((p) => p.alive && p.id !== last.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, last.id)
+    })
   game = engine.resolveRound(game)
   game = engine.submitGuess(game, 'nope')
   assert.equal(game.winner.team, 'crew')
@@ -417,9 +447,11 @@ test('the imposters win the moment they match the crew', () => {
   const crew = game.players.filter((p) => p.role === 'crew')
 
   // Two crewmates voted out, one at a time. The first is survivable.
-  game.players.filter((p) => p.id !== crew[0].id && p.alive).forEach((voter) => {
-    game = engine.castVote(game, voter.id, crew[0].id)
-  })
+  game.players
+    .filter((p) => p.id !== crew[0].id && p.alive)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, crew[0].id)
+    })
   game = engine.resolveRound(game)
   assert.equal(game.winner, null, '3 crew vs 1 imposter — the hunt goes on')
   assert.equal(game.phase, 'result')
@@ -427,9 +459,11 @@ test('the imposters win the moment they match the crew', () => {
   game = engine.nextRound(game)
   game = toVoting(game)
   const lastCrew = game.players.find((p) => p.alive && p.role === 'crew')
-  game.players.filter((p) => p.alive && p.id !== lastCrew.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, lastCrew.id)
-  })
+  game.players
+    .filter((p) => p.alive && p.id !== lastCrew.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, lastCrew.id)
+    })
   game = engine.resolveRound(game)
   assert.equal(game.winner.team, 'imposter', 'one crew and one imposter left — the imposters take it')
   assert.match(game.winner.reason, /two players are left|match the crew/i)
@@ -444,9 +478,11 @@ test('parity also ends a bigger table early, and only at parity', () => {
   let round = game
   for (let i = 0; i < 2; i += 1) {
     const victim = crew[i]
-    round.players.filter((p) => p.alive && p.id !== victim.id).forEach((voter) => {
-      round = engine.castVote(round, voter.id, victim.id)
-    })
+    round.players
+      .filter((p) => p.alive && p.id !== victim.id)
+      .forEach((voter) => {
+        round = engine.castVote(round, voter.id, victim.id)
+      })
     round = engine.resolveRound(round)
     if (i === 0) {
       assert.equal(round.winner, null, '3 crew vs 2 imposters is still playable')
@@ -462,9 +498,11 @@ test('a caught imposter still gets their guess before parity is judged', () => {
      game — they get the one guess first, exactly as before. */
   let game = voteSetup({ count: 6, imposters: 2 })
   const target = game.players.find((p) => p.role === 'imposter')
-  game.players.filter((p) => p.id !== target.id).forEach((voter) => {
-    game = engine.castVote(game, voter.id, target.id)
-  })
+  game.players
+    .filter((p) => p.id !== target.id)
+    .forEach((voter) => {
+      game = engine.castVote(game, voter.id, target.id)
+    })
   game = engine.resolveRound(game)
   assert.equal(game.winner, null, 'the caught imposter is owed a guess')
   assert.equal(game.phase, 'guess')
@@ -653,16 +691,11 @@ test('a decoy always fits the word, never a stranger from another world', () => 
     if (!pick.decoy) continue
     const entry = fresh.categories.find((c) => c.id === pick.categoryId)?.words.find((w) => w.word === pick.word)
     if (entry?.hints?.length) {
-      assert.ok(
-        entry.hints.includes(pick.decoy),
-        `"${pick.decoy}" is not one of the hints for "${pick.word}"`,
-      )
+      assert.ok(entry.hints.includes(pick.decoy), `"${pick.decoy}" is not one of the hints for "${pick.word}"`)
       sawHint += 1
       continue
     }
-    const sameCategory = fresh.categories
-      .find((c) => c.id === pick.categoryId)
-      .words.some((w) => w.word === pick.decoy)
+    const sameCategory = fresh.categories.find((c) => c.id === pick.categoryId).words.some((w) => w.word === pick.decoy)
     assert.ok(sameCategory, `"${pick.decoy}" does not belong with "${pick.word}" (${pick.categoryName})`)
     sawCategory += 1
   }
@@ -833,7 +866,15 @@ test('CRUD: add / update / delete words and categories', () => {
 test('import sanitises hostile / broken payloads', () => {
   const dirty = {
     categories: [
-      { id: 'x', name: 'Ok', words: [{ word: 'Fine', difficulty: 'easy' }, { word: '', difficulty: 'easy' }, { word: 'Fine', difficulty: 'hard' }] },
+      {
+        id: 'x',
+        name: 'Ok',
+        words: [
+          { word: 'Fine', difficulty: 'easy' },
+          { word: '', difficulty: 'easy' },
+          { word: 'Fine', difficulty: 'hard' },
+        ],
+      },
       { id: 'y', name: '', words: [{ word: 'Nope' }] },
       'garbage',
     ],
@@ -909,7 +950,13 @@ test('host tally equals the local engine verdict, guess and all', () => {
   // The local engine puts the room in the guess phase for exactly this case.
   const local = (() => {
     const players = ['p1', 'p2', 'p3', 'p4'].map((id, seat) => ({
-      id, name: id, seat, role: id === 'p2' ? 'imposter' : 'crew', alive: true, eliminatedRound: null, revealed: false,
+      id,
+      name: id,
+      seat,
+      role: id === 'p2' ? 'imposter' : 'crew',
+      alive: true,
+      eliminatedRound: null,
+      revealed: false,
     }))
     return { players, secret: { word: 'Umbrella' }, config: { winRule: 'lastStanding' }, history: [], round: 1 }
   })()
@@ -1029,7 +1076,10 @@ test('only the turn player (or driver) may advance a clue', () => {
 test('eliminated players are excluded from voting and turns', () => {
   const r = room()
   r.game.eliminated = ['p4']
-  assert.deepEqual(onlineGame.roomAlive(r).map((p) => p.id), ['p1', 'p2', 'p3'])
+  assert.deepEqual(
+    onlineGame.roomAlive(r).map((p) => p.id),
+    ['p1', 'p2', 'p3'],
+  )
   assert.equal(onlineGame.voteProgress(r).total, 3)
 })
 
@@ -1055,11 +1105,7 @@ test('an online room resolves parity the same way', () => {
   // A caught imposter is still owed their guess before anything is settled.
   const catching = {
     ...room(),
-    players: [
-      ...players,
-      { id: 'p3', name: 'C', ready: true, online: true, joinedAt: 3, lastSeen: Date.now() },
-      { id: 'p4', name: 'D', ready: true, online: true, joinedAt: 4, lastSeen: Date.now() },
-    ],
+    players: [...players, { id: 'p3', name: 'C', ready: true, online: true, joinedAt: 3, lastSeen: Date.now() }, { id: 'p4', name: 'D', ready: true, online: true, joinedAt: 4, lastSeen: Date.now() }],
     game: { ...room().game, votes: { p1: 'p2', p3: 'p2', p4: 'p2' }, submitted: ['p1', 'p3', 'p4'] },
   }
   const caught = onlineGame.computeResult(catching, { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' })
@@ -1139,14 +1185,7 @@ test('an open secret card is closed on the way back', () => {
 })
 
 test('a junk snapshot is thrown away, never half-restored', () => {
-  const junk = [
-    null,
-    {},
-    { v: 99, state: { players: [{}, {}], config: {}, phase: 'handoff', secret: { word: 'x' } } },
-    { v: 1, state: { players: [], config: {}, phase: 'handoff', secret: { word: 'x' } } },
-    { v: 1, state: { players: [{}, {}], config: {}, phase: 'not-a-phase', secret: { word: 'x' } } },
-    { v: 1, state: { players: [{}, {}], config: {}, phase: 'handoff', secret: {} } },
-  ]
+  const junk = [null, {}, { v: 99, state: { players: [{}, {}], config: {}, phase: 'handoff', secret: { word: 'x' } } }, { v: 1, state: { players: [], config: {}, phase: 'handoff', secret: { word: 'x' } } }, { v: 1, state: { players: [{}, {}], config: {}, phase: 'not-a-phase', secret: { word: 'x' } } }, { v: 1, state: { players: [{}, {}], config: {}, phase: 'handoff', secret: {} } }]
   for (const value of junk) {
     /* written raw, bypassing saveGameSnapshot, so load() has to defend itself */
     sessionStore.writeSession(limits.STORAGE_KEYS.localGame, value)
@@ -1262,41 +1301,21 @@ test('phase views show the table exactly who is holding it up', () => {
     players: room().players.map((p) => (p.id === 'p3' ? { ...p, lastSeen: ago(70000) } : p)),
   })
 
-  const card = onlineGame.phaseView(
-    { ...dark, game: { ...dark.game, phase: 'reveal', revealedBy: ['p1', 'p2'] } },
-    'p1',
-    { role: 'crew', word: 'BRIDGE' },
-  )
+  const card = onlineGame.phaseView({ ...dark, game: { ...dark.game, phase: 'reveal', revealedBy: ['p1', 'p2'] } }, 'p1', { role: 'crew', word: 'BRIDGE' })
   assert.deepEqual(card.waitingOn.sort(), ['C', 'D'], 'the card screen lists the missing names')
   assert.deepEqual(card.offlineNames, ['C'], 'and marks which one is dark, not just late')
 
   const voting = onlineGame.phaseView({ ...dark, game: { ...dark.game, votes: { p1: 'p2', p2: 'p1' } } }, 'p1', null)
-  assert.deepEqual(
-    voting.waitingOn.map((w) => `${w.name}${w.offline ? '(dark)' : ''}`).sort(),
-    ['C(dark)', 'D'],
-    'voting says who has not cast — offline ones flagged',
-  )
+  assert.deepEqual(voting.waitingOn.map((w) => `${w.name}${w.offline ? '(dark)' : ''}`).sort(), ['C(dark)', 'D'], 'voting says who has not cast — offline ones flagged')
 
-  const clues = onlineGame.phaseView(
-    { ...dark, game: { ...dark.game, phase: 'clues', turnPlayerId: 'p3', clueIndex: 2 } },
-    'p1',
-    null,
-  )
+  const clues = onlineGame.phaseView({ ...dark, game: { ...dark.game, phase: 'clues', turnPlayerId: 'p3', clueIndex: 2 } }, 'p1', null)
   assert.equal(clues.turnOffline, true, 'the stuck clue turn is named as offline')
   assert.equal(clues.hostOffline, false, 'here only the turn player is dark — the host is fine')
 
-  const briefing = onlineGame.phaseView(
-    { ...dark, game: { ...dark.game, phase: 'briefing' }, players: dark.players.map((p) => (p.id === 'p1' ? { ...p, lastSeen: ago(70000) } : p)) },
-    'p2',
-    null,
-  )
+  const briefing = onlineGame.phaseView({ ...dark, game: { ...dark.game, phase: 'briefing' }, players: dark.players.map((p) => (p.id === 'p1' ? { ...p, lastSeen: ago(70000) } : p)) }, 'p2', null)
   assert.equal(briefing.hostOffline, true, 'the host going dark is visible on the briefing screen')
 
-  const guess = onlineGame.phaseView(
-    { ...dark, game: { ...dark.game, phase: 'guess', pendingGuess: { playerId: 'p3', name: 'C' }, guess: null } },
-    'p1',
-    null,
-  )
+  const guess = onlineGame.phaseView({ ...dark, game: { ...dark.game, phase: 'guess', pendingGuess: { playerId: 'p3', name: 'C' }, guess: null } }, 'p1', null)
   assert.equal(guess.accusedOffline, true, 'an accused player who vanished can be waived past')
 })
 
@@ -1334,7 +1353,7 @@ test('no host left standing: the empty roster closes itself', async () => {
   assert.ok(body.includes('HOST_PROTECTED'), 'the host seat is protected from its own button')
   assert.ok(body.includes('clueOrder = game.clueOrder.filter((id) => id !== playerId)'), 'the clue order is pruned')
   assert.ok(body.includes('votes[playerId]'), 'the missing ballot is dropped')
-  assert.ok(body.includes("pendingGuess?.playerId === playerId"), 'a vanished accused player is handled')
+  assert.ok(body.includes('pendingGuess?.playerId === playerId'), 'a vanished accused player is handled')
   assert.ok(body.includes('waived: true'), 'the waived guess is marked, so nobody waits on text that will never come')
   assert.ok(body.includes('online: true, lastSeen: now()') === false, 'the removed row is not faked back to life')
 })
@@ -1365,6 +1384,89 @@ test('the room tells a removed player why their table vanished', async () => {
   assert.ok(apply.includes("tone: 'error'"), 'the boot notice is an error notice')
   assert.ok(apply.includes('The host removed you from the room.'), 'and says exactly what happened')
   assert.ok(apply.includes('next.status !== ROOM_STATUS.TERMINATED'), 'a closed room is the OTHER message, not a removal')
+})
+
+/* ================================================================== */
+group('SPONSOR BREAK & CUSTOM CODES')
+
+test('the custom-code filter and validator mirror the generated-code rules', () => {
+  assert.equal(adGate.filterCustomCodeInput('pa!rk 09S9z'), 'PARK99', 'banned glyphs vanish while typing')
+  assert.equal(adGate.filterCustomCodeInput('LOL S0S OIL'), '', 'every banned glyph strips to nothing')
+  assert.deepEqual(adGate.validateCustomRoomCode('PARK99'), { ok: true, value: 'PARK99' })
+  assert.equal(adGate.validateCustomRoomCode('PARK9').ok, false, 'five is not six')
+  assert.equal(adGate.validateCustomRoomCode('PARK9OOO').ok, false, 'overflow trims, then fails length')
+  assert.equal(adGate.validateCustomRoomCode('').ok, false, 'empty is not a code')
+})
+
+test('the skip clock arms at fifteen seconds — not before, not never', () => {
+  assert.equal(adGate.AD_SKIP_AFTER_S, 15)
+  assert.deepEqual(adGate.adSkipState(0), { secondsLeft: 15, skipEnabled: false, complete: false })
+  assert.deepEqual(adGate.adSkipState(14.6), { secondsLeft: 1, skipEnabled: false, complete: false }, '14.6 s is still 14 s of watching')
+  assert.equal(adGate.adSkipState(15).skipEnabled, true, 'at fifteen the skip arms')
+  assert.deepEqual(adGate.adSkipState(40), { secondsLeft: 0, skipEnabled: true, complete: true }, 'and it stays armed')
+  assert.equal(adGate.adSkipState('garbage').secondsLeft, 15, 'garbage input cannot skip the break')
+})
+
+test('the ad overlay exists, plays muted, gates skip on the clock, and never fakes a view', async () => {
+  const { readFileSync } = await import('node:fs')
+  const ad = readFileSync('src/components/lobby/AdBreak.jsx', 'utf8')
+  assert.ok(ad.includes('autoPlay') && ad.includes('muted'), 'plays muted, like autoplay rules demand')
+  assert.ok(ad.includes('adSkipState'), 'the SAME pure clock the tests pin drives the overlay')
+  assert.ok(ad.includes('AD_PLAYLIST_PATH'), 'the playlist is fetched at run time, never baked in')
+  assert.ok(ad.includes('not now') && ad.includes('onClose'), 'closing without finishing unlocks nothing')
+  assert.ok(ad.includes('AD SPACE'), 'no videos installed? the plate says so honestly')
+})
+
+test('the service pins a chosen code, refuses ugly ones, and never swaps a taken one', async () => {
+  const { readFileSync } = await import('node:fs')
+  const service = readFileSync('src/lib/onlineService.js', 'utf8')
+  assert.ok(service.includes('createRoom({ playerName, config, customCode = null })'), 'createRoom takes the custom code')
+  assert.ok(service.includes('validateCustomRoomCode(customCode)'), 'validated by the one rule set')
+  assert.ok(service.includes('attempt === 0 && pinned ? pinned : generateRoomCode()'), 'the first attempt uses the chosen code')
+  assert.ok(service.includes("if (pinned) fail('CODE_TAKEN'"), 'a collision fails loudly — no silent re-roll')
+  assert.ok(service.includes("'CODE_TAKEN']"), 'the code is in the known-codes set')
+  assert.equal(onlineService.friendlyRoomError({ code: 'CODE_TAKEN', message: 'custom line' }), 'custom line', 'the collision line is spoken verbatim, not generic-ised')
+  assert.match(service, /already powering a live room/, 'and the copy the player actually sees explains it')
+  assert.ok(service.includes('await roomExists(pinned)'), 'the room is checked free before the insert')
+})
+
+test('the setup screen only unlocks the input through the break', async () => {
+  const { readFileSync } = await import('node:fs')
+  const setup = readFileSync('src/components/lobby/OnlineSetup.jsx', 'utf8')
+  assert.ok(setup.includes("import { AdBreak } from './AdBreak.jsx'"), 'the overlay is mounted from the setup panel')
+  assert.ok(setup.includes('Watch ad') && setup.includes('setCodeUnlocked(true)'), 'watching the break is the only unlock path')
+  assert.ok(setup.includes('disabled={!codeUnlocked}'), 'the input is locked until then')
+  assert.ok(setup.includes('customCode: code'), 'and only an unlocked, validated code reaches create')
+  assert.ok(setup.includes('Create room · ${customCode}'), 'the button repeats the chosen code — no surprises')
+})
+
+test('game over: guests detach (seat kept, rejoin back), the host finishes the room', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  assert.ok(hook.includes('const detach = useCallback'), 'the hook exposes a walk-away-without-surrender')
+  assert.ok(/actions: \{[\s\S]*?leave,\s*detach,[\s\S]*?\}/.test(hook), 'detach is on the actions surface')
+  assert.ok(!hook.slice(hook.indexOf('const detach = useCallback'), hook.indexOf('const leave = useCallback')).includes('apiLeaveRoom'), 'detach never gives the seat up on the server')
+  const phases = readFileSync('src/components/online/OnlineGamePhases.jsx', 'utf8')
+  assert.ok(phases.includes('await actions.detach()'), 'the game-over leave detaches')
+  assert.ok(phases.includes('if (isHost) await actions.closeRoom()'), 'while the host closes the room for real')
+  assert.ok(phases.includes("exitLabel={isHost ? 'Close room & finish' : 'Leave room'}"), 'and the labels say which is which')
+})
+
+test('the last room survives a leave so the table stays reachable', async () => {
+  const { readFileSync } = await import('node:fs')
+  assert.equal(typeof limits.STORAGE_KEYS.lastRoom, 'string', 'a storage key of its own')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  assert.ok(hook.includes('writeJSON(STORAGE_KEYS.lastRoom, { code: next.code, name: next.name ||'), 'taking a seat remembers it device-wide')
+  const session = readFileSync('src/components/online/OnlineSession.jsx', 'utf8')
+  assert.ok(session.includes('readJSON(STORAGE_KEYS.session, null) || readJSON(STORAGE_KEYS.lastRoom, null)'), 'the rejoin card falls back to the remembered room')
+})
+
+test('the ads folder ships with an honest empty playlist', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const list = JSON.parse(await readFile('public/ads/playlist.json', 'utf8'))
+  assert.ok(Array.isArray(list) && list.length === 0, 'ships empty — the organiser adds mp4s without a rebuild')
+  const readme = await readFile('public/ads/README.txt', 'utf8')
+  assert.ok(readme.includes('.mp4') && readme.includes('playlist.json'), 'and says exactly where to drop them')
 })
 
 /* ================================================================== */
@@ -1411,12 +1513,7 @@ test('players created client-side always carry the expected fields', () => {
 })
 
 test('every room helper the UI calls is actually exported', () => {
-  const required = [
-    'createRoom', 'joinRoom', 'leaveRoom', 'setPlayerReady', 'pingPlayer', 'patchRoom', 'writeSecrets',
-    'fetchSecret', 'submitVote', 'terminateRoom', 'sweepExpiredRooms', 'listActiveRooms', 'subscribeToRoom',
-    'fetchRoomRow', 'roomExists', 'pingBackend', 'friendlyRoomError', 'normalizeRoom', 'isConfigured',
-    'fetchSharedWords', 'pushSharedWords',
-  ]
+  const required = ['createRoom', 'joinRoom', 'leaveRoom', 'setPlayerReady', 'pingPlayer', 'patchRoom', 'writeSecrets', 'fetchSecret', 'submitVote', 'terminateRoom', 'sweepExpiredRooms', 'listActiveRooms', 'subscribeToRoom', 'fetchRoomRow', 'roomExists', 'pingBackend', 'friendlyRoomError', 'normalizeRoom', 'isConfigured', 'fetchSharedWords', 'pushSharedWords']
   required.forEach((name) => assert.equal(typeof onlineService[name], 'function', `${name} is missing`))
 })
 
@@ -1430,7 +1527,11 @@ test('chaos assigns imposter roles without a minority clamp', () => {
   // over 1..playerCount — including everyone.
   const seen = new Set()
   for (let i = 0; i < 600; i += 1) seen.add(engine.rollChaosImposterCount(6))
-  assert.deepEqual([...seen].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6], `saw ${[...seen].join(',')}`)
+  assert.deepEqual(
+    [...seen].sort((a, b) => a - b),
+    [0, 1, 2, 3, 4, 5, 6],
+    `saw ${[...seen].join(',')}`,
+  )
 })
 
 test('chaos can deal an all-imposter table (a normal player is never forced)', () => {
@@ -1508,7 +1609,10 @@ test('an ordinary next round skips the card pass entirely', () => {
   const next = engine.nextRound(game)
   assert.equal(next.chaosRound, false, 'not a chaos round')
   assert.equal(next.phase, 'briefing', 'straight to the briefing — no cards')
-  assert.ok(next.players.every((p) => p.revealed), 'nobody is marked as still-to-look')
+  assert.ok(
+    next.players.every((p) => p.revealed),
+    'nobody is marked as still-to-look',
+  )
   assert.equal(next.cardVisible, false)
   assert.equal(next.revealIndex, 0)
 })
@@ -1522,7 +1626,10 @@ test('a round that puts the base roles back still deals the cards', () => {
   const next = engine.nextRound(game)
   assert.equal(next.players.filter((p) => p.role === 'imposter').length, 2, 'the base deal is back')
   assert.equal(next.phase, 'handoff', 'everyone looks at their card again')
-  assert.ok(next.players.every((p) => !p.revealed), 'cards are un-seen for the new deal')
+  assert.ok(
+    next.players.every((p) => !p.revealed),
+    'cards are un-seen for the new deal',
+  )
 })
 
 test('a chaos round resets the reveal so every player sees the new card', () => {
@@ -1531,7 +1638,10 @@ test('a chaos round resets the reveal so every player sees the new card', () => 
   game = { ...game, nextChaosRound: 2, players: game.players.map((p) => ({ ...p, revealed: true })) }
   const next = engine.nextRound(game)
   assert.equal(next.chaosRound, true, 'this round really is a chaos round')
-  assert.ok(next.players.every((p) => p.revealed === false), 'cards must be un-seen for the new round')
+  assert.ok(
+    next.players.every((p) => p.revealed === false),
+    'cards must be un-seen for the new round',
+  )
 })
 
 test('chaos keeps the word: crew still receive the secret on every round', () => {
@@ -1615,7 +1725,10 @@ test('chaos is an event every few rounds, not every round', () => {
   // The rounds before it keep the base assignment: same roles, same word.
   const roundTwo = engine.nextRound(game)
   assert.equal(roundTwo.chaosRound, false, 'round two is an ordinary round')
-  assert.deepEqual(roundTwo.players.map((p) => p.role), game.players.map((p) => p.role))
+  assert.deepEqual(
+    roundTwo.players.map((p) => p.role),
+    game.players.map((p) => p.role),
+  )
 
   // A due chaos round re-rolls and re-arms the clock 3-5 rounds later.
   const due = { ...game, nextChaosRound: 2 }
@@ -1676,18 +1789,9 @@ test('project URLs are normalised from whatever people actually paste', () => {
 
 test('the Supabase dashboard URL is recovered instead of rejected', () => {
   // The single most common paste mistake: the browser address from the dashboard.
-  assert.equal(
-    runtimeConfig.normalizeBackendUrl('https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo'),
-    'https://uepgrjiktejmvyupvzlo.supabase.co',
-  )
-  assert.equal(
-    runtimeConfig.normalizeBackendUrl('https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo/settings/api'),
-    'https://uepgrjiktejmvyupvzlo.supabase.co',
-  )
-  assert.equal(
-    runtimeConfig.normalizeBackendUrl('https://app.supabase.com/dashboard/project/abcdefghijklm'),
-    'https://abcdefghijklm.supabase.co',
-  )
+  assert.equal(runtimeConfig.normalizeBackendUrl('https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo'), 'https://uepgrjiktejmvyupvzlo.supabase.co')
+  assert.equal(runtimeConfig.normalizeBackendUrl('https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo/settings/api'), 'https://uepgrjiktejmvyupvzlo.supabase.co')
+  assert.equal(runtimeConfig.normalizeBackendUrl('https://app.supabase.com/dashboard/project/abcdefghijklm'), 'https://abcdefghijklm.supabase.co')
   const result = runtimeConfig.validateBackendUrl('https://supabase.com/dashboard/project/uepgrjiktejmvyupvzlo')
   assert.equal(result.ok, true)
   assert.equal(result.value, 'https://uepgrjiktejmvyupvzlo.supabase.co')
@@ -1825,20 +1929,11 @@ test('a deliberate error keeps its code through the retry wrapper', () => {
   assert.match(onlineService.friendlyRoomError(classified), /closed or the code is wrong/i)
 
   // A closed room is a different, equally specific message.
-  assert.match(
-    onlineService.friendlyRoomError(Object.assign(new Error('x'), { code: 'TERMINATED' })),
-    /host closed this room/i,
-  )
+  assert.match(onlineService.friendlyRoomError(Object.assign(new Error('x'), { code: 'TERMINATED' })), /host closed this room/i)
 
   // A mistyped invite link: the validation copy is surfaced, not swallowed.
-  assert.match(
-    onlineService.friendlyRoomError(Object.assign(new Error('That code contains a character we never use. Check it again.'), { code: 'INVALID_CODE' })),
-    /character we never use/i,
-  )
-  assert.match(
-    onlineService.friendlyRoomError(Object.assign(new Error('Pick a name first.'), { code: 'INVALID_NAME' })),
-    /pick a name first/i,
-  )
+  assert.match(onlineService.friendlyRoomError(Object.assign(new Error('That code contains a character we never use. Check it again.'), { code: 'INVALID_CODE' })), /character we never use/i)
+  assert.match(onlineService.friendlyRoomError(Object.assign(new Error('Pick a name first.'), { code: 'INVALID_NAME' })), /pick a name first/i)
 
   // Anything genuinely unknown still degrades to the generic line.
   assert.equal(onlineService.classifyError(new Error('kaboom')).code, 'UNKNOWN')
@@ -1975,7 +2070,9 @@ test('the admin passphrase never appears in the shipped source', async () => {
 test('the stored digest matches the salted passphrase', () => {
   const salt = 'vrdev.imposter.blackbox.v1'
   const phrase = ['VRdev', 'VOLAM', 'rakshith'].join('')
-  const digest = createHash('sha256').update(salt + phrase).digest('hex')
+  const digest = createHash('sha256')
+    .update(salt + phrase)
+    .digest('hex')
   assert.match(digest, /^[0-9a-f]{64}$/)
 })
 
@@ -1999,9 +2096,7 @@ test('the stored digest matches the salted passphrase', () => {
     const isCallback = source.includes(`const ${name} = useCallback(`)
     const isFunction = source.includes(`function ${name}(`)
     assert.ok(isCallback || isFunction, `a ${name} implementation exists`)
-    const start = isCallback
-      ? source.indexOf(`const ${name} = useCallback(`)
-      : source.indexOf(`function ${name}(`)
+    const start = isCallback ? source.indexOf(`const ${name} = useCallback(`) : source.indexOf(`function ${name}(`)
     const from = source.indexOf('{', start)
     let depth = 0
     for (let index = from; index < source.length; index += 1) {
@@ -2018,9 +2113,13 @@ test('the stored digest matches the salted passphrase', () => {
   const startGame = bodyOf('startGame')
   const playAgain = bodyOf('playAgain')
   const metaKeyStart = source.indexOf('const SECRET_META_KEY = ')
-  const metaKey = metaKeyStart >= 0
-    ? source.slice(metaKeyStart + 'const SECRET_META_KEY = '.length).split('\n')[0].trim()
-    : ''
+  const metaKey =
+    metaKeyStart >= 0
+      ? source
+          .slice(metaKeyStart + 'const SECRET_META_KEY = '.length)
+          .split('\n')[0]
+          .trim()
+      : ''
 
   test('the chaos metadata key is declared, quoted and reserved-looking', () => {
     assert.ok(metaKeyStart >= 0, 'SECRET_META_KEY is declared')
@@ -2033,7 +2132,10 @@ test('the stored digest matches the salted passphrase', () => {
   })
 
   test('the round word is stored privately at deal time, in both paths', () => {
-    for (const [label, body] of [['startGame', startGame], ['playAgain', playAgain]]) {
+    for (const [label, body] of [
+      ['startGame', startGame],
+      ['playAgain', playAgain],
+    ]) {
       assert.ok(body.includes('[SECRET_META_KEY] = {'), `${label} stores the round word under the reserved key`)
       assert.ok(body.includes('word: picked.word'), `${label} stores the dealt word, not a placeholder`)
     }
@@ -2049,10 +2151,7 @@ test('the stored digest matches the salted passphrase', () => {
     published.forEach((line) => {
       assert.ok(line.includes('publicResult('), `role-free publish expected, got: ${line.trim()}`)
     })
-    assert.ok(
-      !/lastResult: result\b/.test(publishResult),
-      'the raw result (with wasImposter) must never be published as-is',
-    )
+    assert.ok(!/lastResult: result\b/.test(publishResult), 'the raw result (with wasImposter) must never be published as-is')
     assert.ok(publishGuess.includes('revealedRoles: gameOver'), 'roles only appear once the guess ends the game')
   })
 
@@ -2064,7 +2163,7 @@ test('the stored digest matches the salted passphrase', () => {
 
   test('the re-roll reads the reserved entry only, never the whole private map', () => {
     assert.ok(nextRound.includes('playerId: SECRET_META_KEY'), 'addresses the reserved entry')
-    assert.ok(!nextRound.includes('fetchSecret({ code })' ), 'never reads every player secret')
+    assert.ok(!nextRound.includes('fetchSecret({ code })'), 'never reads every player secret')
     assert.ok(nextRound.includes('.catch(() => null)'), 'a failed read degrades instead of throwing')
   })
 
@@ -2077,10 +2176,11 @@ test('the stored digest matches the salted passphrase', () => {
   test('the re-roll assigns fresh roles to living players and reuses none', () => {
     // Strip comments first: the prose explains the rule using the same words
     // the check looks for, so assertions have to run against code only.
-    const codeOnly = (text) => text
-      .split('*/')
-      .map((part) => (part.indexOf('/*') >= 0 ? part.slice(0, part.indexOf('/*')) : part))
-      .join('')
+    const codeOnly = (text) =>
+      text
+        .split('*/')
+        .map((part) => (part.indexOf('/*') >= 0 ? part.slice(0, part.indexOf('/*')) : part))
+        .join('')
     const nextCode = codeOnly(nextRound)
 
     assert.ok(nextCode.includes('assignRolesFor(room.config, aliveIds.length)'), 'rolls for the living roster')
@@ -2099,81 +2199,81 @@ test('the stored digest matches the salted passphrase', () => {
   })
 
   test('imposters receive no word and crew receive the round word', () => {
-    assert.ok(nextRound.includes("role === ROLES.IMPOSTER ? null : word"), 'crew keep the word, imposters do not')
+    assert.ok(nextRound.includes('role === ROLES.IMPOSTER ? null : word'), 'crew keep the word, imposters do not')
   })
 
   test('chaos never disturbs the normal online round path', () => {
     assert.ok(nextRound.includes('(chaosNow || restoresBase) && aliveIds.length'), 'the rewrite is gated on a scheduled chaos round')
     // The plain path is still the tail of the function, reachable in classic mode.
-    assert.ok(
-      nextRound.indexOf('patchRoom(') > nextRound.indexOf('(chaosNow || restoresBase)'),
-      'an ordinary round falls through to the unchanged patch path',
-    )
+    assert.ok(nextRound.indexOf('patchRoom(') > nextRound.indexOf('(chaosNow || restoresBase)'), 'an ordinary round falls through to the unchanged patch path')
   })
 
   test('closing a room deletes it, so nothing accumulates', async () => {
-  const { readFileSync } = await import('node:fs')
-  const service = readFileSync(new URL('../src/lib/onlineService.js', import.meta.url), 'utf8')
-  const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8')
+    const { readFileSync } = await import('node:fs')
+    const service = readFileSync(new URL('../src/lib/onlineService.js', import.meta.url), 'utf8')
+    const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8')
 
-  /* The client: RPC first, plain delete as the fallback — never the old
+    /* The client: RPC first, plain delete as the fallback — never the old
      `room = null` update that the not-null column rejects. */
-  const terminate = service.slice(service.indexOf('export async function terminateRoom'), service.indexOf('export async function sweepExpiredRooms'))
-  assert.ok(terminate.includes("callRpc('imposter_terminate_room'"), 'the RPC is tried first')
-  assert.ok(terminate.includes('.delete()'), 'the fallback deletes the row')
-  assert.ok(!/room:\s*null/.test(terminate), 'the fallback never nulls a not-null column')
+    const terminate = service.slice(service.indexOf('export async function terminateRoom'), service.indexOf('export async function sweepExpiredRooms'))
+    assert.ok(terminate.includes("callRpc('imposter_terminate_room'"), 'the RPC is tried first')
+    assert.ok(terminate.includes('.delete()'), 'the fallback deletes the row')
+    assert.ok(!/room:\s*null/.test(terminate), 'the fallback never nulls a not-null column')
 
-  /* Housekeeping deletes stale rows rather than flagging them. */
-  const sweep = service.slice(service.indexOf('export async function sweepExpiredRooms'), service.indexOf('export async function sweepExpiredRooms') + 600)
-  assert.ok(sweep.includes('.delete()'), 'the sweep deletes')
-  assert.ok(!sweep.includes('status: ROOM_STATUS.TERMINATED'), 'no status flagging left')
+    /* Housekeeping deletes stale rows rather than flagging them. */
+    const sweep = service.slice(service.indexOf('export async function sweepExpiredRooms'), service.indexOf('export async function sweepExpiredRooms') + 600)
+    assert.ok(sweep.includes('.delete()'), 'the sweep deletes')
+    assert.ok(!sweep.includes('status: ROOM_STATUS.TERMINATED'), 'no status flagging left')
 
-  /* The database agrees. */
-  const terminateFn = schema.slice(schema.indexOf('create or replace function public.imposter_terminate_room'), schema.indexOf('create or replace function public.imposter_sweep_expired'))
-  assert.ok(/delete from public\.imposter_rooms/.test(terminateFn), 'terminate deletes the row')
-  const sweepFn = schema.slice(schema.indexOf('create or replace function public.imposter_sweep_expired'), schema.indexOf('grant execute on function public.imposter_terminate_room'))
-  assert.ok(/delete from public\.imposter_rooms/.test(sweepFn), 'the sweep deletes the row')
-  assert.ok(schema.includes('create policy "rooms deletable"'), 'a delete policy exists for the client fallback')
-  assert.ok(schema.includes('grant select, insert, update, delete on public.imposter_rooms'), 'delete is granted')
-  assert.ok(schema.includes('delete from public.imposter_rooms where code = upper(p_code);'), 'a host leaving an empty room takes the row with it')
-})
+    /* The database agrees. */
+    const terminateFn = schema.slice(schema.indexOf('create or replace function public.imposter_terminate_room'), schema.indexOf('create or replace function public.imposter_sweep_expired'))
+    assert.ok(/delete from public\.imposter_rooms/.test(terminateFn), 'terminate deletes the row')
+    const sweepFn = schema.slice(schema.indexOf('create or replace function public.imposter_sweep_expired'), schema.indexOf('grant execute on function public.imposter_terminate_room'))
+    assert.ok(/delete from public\.imposter_rooms/.test(sweepFn), 'the sweep deletes the row')
+    assert.ok(schema.includes('create policy "rooms deletable"'), 'a delete policy exists for the client fallback')
+    assert.ok(schema.includes('grant select, insert, update, delete on public.imposter_rooms'), 'delete is granted')
+    assert.ok(schema.includes('delete from public.imposter_rooms where code = upper(p_code);'), 'a host leaving an empty room takes the row with it')
+  })
 
-test('a deleted room tells the watchers the host closed it', async () => {
-  const { readFileSync } = await import('node:fs')
-  const service = readFileSync(new URL('../src/lib/onlineService.js', import.meta.url), 'utf8')
-  const handler = service.slice(service.indexOf("'postgres_changes'"), service.indexOf("'postgres_changes'") + 900)
-  assert.ok(handler.includes("payload.eventType === 'DELETE'"), 'the DELETE event is handled')
-  assert.ok(/onStatus\?\.\('terminated'\)/.test(handler), 'and reported as a closed room')
-  assert.ok(service.includes('closed or the code is wrong'), 'the copy names both causes, not a bare "not found"')
-})
+  test('a deleted room tells the watchers the host closed it', async () => {
+    const { readFileSync } = await import('node:fs')
+    const service = readFileSync(new URL('../src/lib/onlineService.js', import.meta.url), 'utf8')
+    const handler = service.slice(service.indexOf("'postgres_changes'"), service.indexOf("'postgres_changes'") + 900)
+    assert.ok(handler.includes("payload.eventType === 'DELETE'"), 'the DELETE event is handled')
+    assert.ok(/onStatus\?\.\('terminated'\)/.test(handler), 'and reported as a closed room')
+    assert.ok(service.includes('closed or the code is wrong'), 'the copy names both causes, not a bare "not found"')
+  })
 
-test('the create-room form can actually change imposters and turn length', async () => {
-  const { readFileSync } = await import('node:fs')
-  const setup = readFileSync(new URL('../src/components/lobby/OnlineSetup.jsx', import.meta.url), 'utf8')
+  test('the create-room form can actually change imposters and turn length', async () => {
+    const { readFileSync } = await import('node:fs')
+    const setup = readFileSync(new URL('../src/components/lobby/OnlineSetup.jsx', import.meta.url), 'utf8')
 
-  /* The bug: sanitizeConfig clamped imposterCount to floor((playerCount-1)/2)
+    /* The bug: sanitizeConfig clamped imposterCount to floor((playerCount-1)/2)
      of the DEFAULT six-player count, so the stepper snapped back to 2. */
-  const init = setup.slice(setup.indexOf('const [config, setConfig]'), setup.indexOf('const [categoryId, setCategoryId]'))
-  assert.ok(!/sanitizeConfig\(\{[^}]*playerCount/.test(init), 'the create config is not clamped to a player count that does not exist yet')
-  assert.ok(init.includes('imposterCount: 1'), 'imposters start at one')
+    const init = setup.slice(setup.indexOf('const [config, setConfig]'), setup.indexOf('const [categoryId, setCategoryId]'))
+    assert.ok(!/sanitizeConfig\(\{[^}]*playerCount/.test(init), 'the create config is not clamped to a player count that does not exist yet')
+    assert.ok(init.includes('imposterCount: 1'), 'imposters start at one')
 
-  /* The turn length must move between the values the app accepts. */
-  assert.ok(setup.includes('values={[15, 30, 45, 60, 90]}'), 'turn length steps through every legal value')
-  assert.ok(setup.includes('step={15}'), 'and moves a full step at a time')
+    /* The turn length must move between the values the app accepts. */
+    assert.ok(setup.includes('values={[15, 30, 45, 60, 90]}'), 'turn length steps through every legal value')
+    assert.ok(setup.includes('step={15}'), 'and moves a full step at a time')
 
-  /* Both controls exist on the create form. */
-  assert.ok(/label="Imposters"/.test(setup), 'the imposters stepper is rendered')
-  assert.ok(/label="Turn length"/.test(setup), 'the turn length stepper is rendered')
-})
+    /* Both controls exist on the create form. */
+    assert.ok(/label="Imposters"/.test(setup), 'the imposters stepper is rendered')
+    assert.ok(/label="Turn length"/.test(setup), 'the turn length stepper is rendered')
+  })
 
-test('the online host keeps the same chaos cadence as pass & play', () => {
+  test('the online host keeps the same chaos cadence as pass & play', () => {
     /* Chaos is an event every 3-5 rounds online too — it used to re-roll every
        single round, which is exactly what the rules forbid. */
     const startGame = bodyOf('startGame')
     const playAgain = bodyOf('playAgain')
     assert.ok(nextRound.includes('const chaosNow = isChaosRound({ config: room.config, nextChaosRound: room.game.nextChaosRound }, round)'), 'the cadence comes from the engine, not from the mode alone')
     assert.ok(nextRound.includes('nextChaosRound: chaosNow ? scheduleNextChaosRound(round) : room.game.nextChaosRound'), 'a chaos round re-arms the clock 3-5 rounds later')
-    for (const [label, body] of [['startGame', startGame], ['playAgain', playAgain]]) {
+    for (const [label, body] of [
+      ['startGame', startGame],
+      ['playAgain', playAgain],
+    ]) {
       assert.ok(body.includes('nextChaosRound: isChaosMode(room.config) ? scheduleNextChaosRound(1) : null'), `${label} schedules the first chaos round`)
       assert.ok(body.includes('chaosRound: false'), `${label} opens on an ordinary round`)
     }
@@ -2207,7 +2307,7 @@ test('the online host keeps the same chaos cadence as pass & play', () => {
   test('the schema defines the tables and policies the client touches', () => {
     assert.ok(schema.includes('create table if not exists public.imposter_rooms'), 'rooms table')
     assert.ok(schema.includes('create table if not exists public.imposter_words'), 'words table')
-    assert.ok(schema.includes("alter table public.imposter_rooms enable row level security"), 'rooms RLS')
+    assert.ok(schema.includes('alter table public.imposter_rooms enable row level security'), 'rooms RLS')
     assert.ok(schema.includes('drop policy if exists'), 'policies are re-runnable')
   })
 

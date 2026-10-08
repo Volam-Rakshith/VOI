@@ -8,7 +8,7 @@ export const BRAND = {
   game: 'VOTE OUT IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.15',
+  version: '1.0.16',
 }
 
 export const LIMITS = {
@@ -143,6 +143,9 @@ export const STORAGE_KEYS = {
   localGame: 'vrdev.imposter.localgame.v1',
   reloadFlag: 'vrdev.imposter.reload.v1',
   seat: 'vrdev.imposter.seat.v1',
+  /* The last room THIS device joined — survives a deliberate leave so the
+     setup screen can offer "back to the room" (rejoin) with one tap. */
+  lastRoom: 'vrdev.imposter.lastroom.v1',
 }
 
 export const ROUTES = {
