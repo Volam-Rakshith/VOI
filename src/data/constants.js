@@ -8,7 +8,7 @@ export const BRAND = {
   game: 'VOTE OUT IMPOSTER',
   tagline: 'One of you is lying.',
   footer: 'Crafted with passion by VR DEVELOPMENTS',
-  version: '1.0.14',
+  version: '1.0.15',
 }
 
 export const LIMITS = {
@@ -137,10 +137,12 @@ export const STORAGE_KEYS = {
   lastConfig: 'vrdev.imposter.lastconfig.v1',
   admin: 'vrdev.imposter.blackbox.v1',
   profile: 'vrdev.imposter.profile.v1',
-  /* Per-tab (sessionStorage): an in-progress pass & play table, and the marker
-     that says "this page was refreshed while a game was running". */
+  /* Per-tab (sessionStorage): an in-progress pass & play table, the marker that
+     says "this page was refreshed while a game was running", and the seat this
+     tab deliberately took in an online room. */
   localGame: 'vrdev.imposter.localgame.v1',
   reloadFlag: 'vrdev.imposter.reload.v1',
+  seat: 'vrdev.imposter.seat.v1',
 }
 
 export const ROUTES = {

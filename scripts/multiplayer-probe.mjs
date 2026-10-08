@@ -249,6 +249,105 @@ try {
 }
 
 /* ------------------------------------------------------------------ */
+/* The no-show drill: kick, claim and protection — against the live DB  */
+/* ------------------------------------------------------------------ */
+console.log('\nno-show rescue drill (the frozen-table cures):')
+const onlineGame = await import('../src/lib/onlineGame.js')
+let drillOk = 0
+const drillTotal = 3
+
+const rowOf = async (code) => {
+  const row = await service.fetchRoomRow(code)
+  return service.normalizeRoom(row.room, { code: row.code, hostId: row.host_id, status: row.status })
+}
+
+/* A) removing a dark phone opens the reveal gate that the dark phone blocked */
+try {
+  const { room: r0, player: a } = await service.createRoom({ playerName: 'Drill A1', config: { imposterCount: 1, categoryIds: ['random'], difficulty: 'mixed' } })
+  createdRooms.push(r0.code)
+  const { player: b } = await service.joinRoom({ playerName: 'Drill A2', code: r0.code })
+  const { player: c } = await service.joinRoom({ playerName: 'Drill A3', code: r0.code })
+
+  const fresh = await rowOf(r0.code)
+  await service.patchRoom({
+    code: r0.code,
+    patch: {
+      players: fresh.players.map((p) => (p.id === b.id ? { ...p, lastSeen: Date.now() - 120000 } : p)),
+      game: { round: 1, phase: 'reveal', revealedBy: [a.id, c.id], eliminated: [] },
+    },
+    status: 'playing',
+  })
+
+  const stuck = await rowOf(r0.code)
+  const gateBefore = onlineGame.revealProgress(stuck)
+  const dark = onlineGame.offlinePlayers(stuck).map((p) => p.id)
+  if (gateBefore.complete) throw new Error('the gate was open while a phone sat unseen — test room is wrong')
+  if (dark.length !== 1 || dark[0] !== b.id) throw new Error(`offline detection saw ${JSON.stringify(dark)} instead of just B`)
+
+  await service.removePlayer({ code: r0.code, playerId: b.id })
+  const freed = await rowOf(r0.code)
+  const gateAfter = onlineGame.revealProgress(freed)
+  if (freed.players.length !== 2) throw new Error(`roster should shrink to 2, got ${freed.players.length}`)
+  if (!gateAfter.complete) throw new Error('the reveal gate did NOT open after the removal')
+  if (freed.game.revealedBy.includes(b.id)) throw new Error('the removed player lingers in revealedBy')
+  await service.terminateRoom(r0.code)
+  createdRooms.pop()
+  drillOk += 1
+  console.log('  ✓ A: kick unblocks — revealProgress false → true after removing the dark phone (live DB)')
+} catch (error) {
+  failures.push({ cycle: 'drill-A', message: error.message })
+  console.log(`  ✗ A: ${error.message}`)
+}
+
+/* B) claim-host: refused while the host lives, granted after they go quiet */
+try {
+  const { room: r0, player: a } = await service.createRoom({ playerName: 'Drill B1', config: { imposterCount: 1, categoryIds: ['random'], difficulty: 'mixed' } })
+  createdRooms.push(r0.code)
+  const { player: b } = await service.joinRoom({ playerName: 'Drill B2', code: r0.code })
+
+  await service.claimHost({ code: r0.code, playerId: b.id })
+  const afterGreedy = await rowOf(r0.code)
+  if (afterGreedy.hostId === b.id) throw new Error('a player claimed a room whose host is still alive')
+
+  await service.patchRoom({ code: r0.code, patch: { players: afterGreedy.players.map((p) => (p.id === a.id ? { ...p, lastSeen: Date.now() - 120000, online: false } : p)) } })
+  const { room: afterClaim } = await service.claimHost({ code: r0.code, playerId: b.id })
+  const afterHandover = afterClaim || (await rowOf(r0.code))
+  if (afterHandover.hostId !== b.id) throw new Error('the successor could NOT take over after the host went quiet')
+  const promoted = afterHandover.players.find((p) => p.id === b.id)
+  if (!promoted?.isHost) throw new Error('hostId moved but the isHost flag did not')
+  await service.terminateRoom(r0.code)
+  createdRooms.pop()
+  drillOk += 1
+  console.log("  ✓ B: hand-over — greedy claim refused, a quiet host's room falls to the online player (live DB)")
+} catch (error) {
+  failures.push({ cycle: 'drill-B', message: error.message })
+  console.log(`  ✗ B: ${error.message}`)
+}
+
+/* C) the host seat is protected from its own remove button */
+try {
+  const { room: r0, player: a } = await service.createRoom({ playerName: 'Drill C1', config: { imposterCount: 1, categoryIds: ['random'], difficulty: 'mixed' } })
+  createdRooms.push(r0.code)
+  let code = null
+  try {
+    await service.removePlayer({ code: r0.code, playerId: a.id })
+  } catch (error) {
+    code = error.code
+  }
+  if (code !== 'HOST_PROTECTED') throw new Error(`expected HOST_PROTECTED, got ${code}`)
+  const stillThere = await rowOf(r0.code)
+  if (!stillThere.players.some((p) => p.id === a.id)) throw new Error('the host was removed despite the refusal!')
+  await service.terminateRoom(r0.code)
+  createdRooms.pop()
+  drillOk += 1
+  console.log('  ✓ C: protection — a host cannot remove themselves, the room stays intact (live DB)')
+} catch (error) {
+  failures.push({ cycle: 'drill-C', message: error.message })
+  console.log(`  ✗ C: ${error.message}`)
+}
+console.log(`  rescue drills: ${drillOk}/${drillTotal}`)
+
+/* ------------------------------------------------------------------ */
 /* Cleanup + summary                                                   */
 /* ------------------------------------------------------------------ */
 for (const code of createdRooms) {

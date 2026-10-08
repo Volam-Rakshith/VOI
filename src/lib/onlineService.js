@@ -30,15 +30,9 @@
  */
 
 import { isOnlineConfigured, getSupabase, supabaseConfig, resetSupabaseClient, createProbeClient } from './supabase.js'
-import {
-  describeBackend,
-  ensureBackend,
-  getActiveBackend,
-  clearStoredBackend,
-  saveStoredBackend,
-  validateBackendConfig,
-} from './runtimeConfig.js'
+import { describeBackend, ensureBackend, getActiveBackend, clearStoredBackend, saveStoredBackend, validateBackendConfig } from './runtimeConfig.js'
 import { ROOM_STATUS } from '../data/constants.js'
+import { HOST_VANISH_MS, isPlayerOnline } from './onlineGame.js'
 import { generateRoomCode, uid } from '../utils/random.js'
 import { nameKey, normalizeName, validatePlayerName, validateRoomCode } from '../utils/validate.js'
 
@@ -99,12 +93,19 @@ export async function testBackendConfig(input = null) {
   const target = input ? validateBackendConfig(input) : { ok: true, value: getActiveBackend() }
   if (!target.ok) return { ok: false, error: target.error }
   const { url, anonKey } = target.value
-  if (!url || !anonKey) return { ok: false, error: 'Enter the project URL and the anon key first.' }
+  if (!url || !anonKey)
+    return {
+      ok: false,
+      error: 'Enter the project URL and the anon key first.',
+    }
   try {
     const probe = createProbeClient(url, anonKey)
     const { error } = await probe.from(supabaseConfig.table).select('code', { count: 'exact', head: true }).limit(1)
     if (error) throw error
-    return { ok: true, detail: `Connected to ${new URL(url).host} — rooms table reachable.` }
+    return {
+      ok: true,
+      detail: `Connected to ${new URL(url).host} — rooms table reachable.`,
+    }
   } catch (error) {
     return { ok: false, error: friendlyRoomError(classifyError(error)) }
   }
@@ -130,20 +131,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * flattened into UNKNOWN, which is why a mistyped room code produced
  * "Something went wrong talking to the room server" instead of naming it.
  */
-const KNOWN_ERROR_CODES = new Set([
-  'NOT_CONFIGURED',
-  'NOT_FOUND',
-  'FULL',
-  'STARTED',
-  'EXPIRED',
-  'TERMINATED',
-  'SCHEMA_MISSING',
-  'NETWORK',
-  'DUPLICATE_CODE',
-  'FORBIDDEN',
-  'INVALID_CODE',
-  'INVALID_NAME',
-])
+const KNOWN_ERROR_CODES = new Set(['NOT_CONFIGURED', 'NOT_FOUND', 'FULL', 'STARTED', 'EXPIRED', 'TERMINATED', 'SCHEMA_MISSING', 'NETWORK', 'DUPLICATE_CODE', 'FORBIDDEN', 'INVALID_CODE', 'INVALID_NAME', 'HOST_PROTECTED'])
 
 export function classifyError(error) {
   const message = String(error?.message || error || '')
@@ -189,6 +177,8 @@ export const friendlyRoomError = (error) => {
       return 'That room has expired. Ask the host to create a new one.'
     case 'TERMINATED':
       return 'The host closed this room.'
+    case 'HOST_PROTECTED':
+      return 'The host cannot be removed from their own room.'
     default:
       return 'Something went wrong talking to the room server. Please try again.'
   }
@@ -262,7 +252,11 @@ export function normalizeRoom(rawRoom, meta = {}) {
           clueOrder: Array.isArray(room.game.clueOrder) ? room.game.clueOrder : [],
           clueIndex: Number(room.game.clueIndex) || 0,
           turnPlayerId: room.game.turnPlayerId || null,
-          timer: room.game.timer || { running: false, duration: 30, startedAt: null },
+          timer: room.game.timer || {
+            running: false,
+            duration: 30,
+            startedAt: null,
+          },
           votes: room.game.votes && typeof room.game.votes === 'object' ? room.game.votes : {},
           submitted: Array.isArray(room.game.submitted) ? room.game.submitted : [],
           openVote: room.game.openVote || null,
@@ -317,15 +311,14 @@ export async function roomExists(code) {
 /** Lightweight active-room listing for the BLACK BOX dashboard. */
 export async function listActiveRooms(limit = 60) {
   const client = await requireClient()
-  const { data, error } = await client
-    .from(supabaseConfig.table)
-    .select('code,status,host_id,player_count,created_at,updated_at,room')
-    .neq('status', ROOM_STATUS.TERMINATED)
-    .order('updated_at', { ascending: false })
-    .limit(limit)
+  const { data, error } = await client.from(supabaseConfig.table).select('code,status,host_id,player_count,created_at,updated_at,room').neq('status', ROOM_STATUS.TERMINATED).order('updated_at', { ascending: false }).limit(limit)
   if (error) throw classifyError(error)
   return (data || []).map((row) => {
-    const room = normalizeRoom(row.room, { code: row.code, hostId: row.host_id, status: row.status })
+    const room = normalizeRoom(row.room, {
+      code: row.code,
+      hostId: row.host_id,
+      status: row.status,
+    })
     const host = room.players.find((p) => p.id === room.hostId)
     return {
       code: row.code,
@@ -394,7 +387,14 @@ async function mutateRoom(code, transform, extraRow = {}) {
       const { data, error } = await client.from(supabaseConfig.table).update(rowPatch).eq('code', code).select(PG_COLUMNS).maybeSingle()
       if (error) throw classifyError(error)
       if (!data) fail('NOT_FOUND', 'Room vanished mid-write')
-      return { room: normalizeRoom(data.room, { code: data.code, hostId: data.host_id, status: data.status }), secrets: data.secrets }
+      return {
+        room: normalizeRoom(data.room, {
+          code: data.code,
+          hostId: data.host_id,
+          status: data.status,
+        }),
+        secrets: data.secrets,
+      }
     } catch (error) {
       lastError = classifyError(error)
       if (lastError.code === 'NOT_FOUND' || lastError.code === 'EXPIRED' || lastError.code === 'TERMINATED') throw lastError
@@ -464,7 +464,15 @@ export async function createRoom({ playerName, config }) {
       .maybeSingle()
 
     if (!error && data) {
-      return { room: normalizeRoom(data.room, { code, hostId: host.id, status: data.status }), player: host, code }
+      return {
+        room: normalizeRoom(data.room, {
+          code,
+          hostId: host.id,
+          status: data.status,
+        }),
+        player: host,
+        code,
+      }
     }
     const friendly = classifyError(error)
     if (friendly.code !== 'DUPLICATE_CODE') throw friendly
@@ -494,7 +502,10 @@ export async function joinRoom({ playerName, code, existingPlayerId = null }) {
   if (rpc.ok && rpc.data) {
     const payload = typeof rpc.data === 'string' ? JSON.parse(rpc.data) : rpc.data
     if (payload?.error) fail(payload.error, payload.message)
-    const room = normalizeRoom(payload.room, { code: cleanCode, hostId: payload.room?.hostId })
+    const room = normalizeRoom(payload.room, {
+      code: cleanCode,
+      hostId: payload.room?.hostId,
+    })
     const player = room.players.find((p) => p.id === payload.playerId) || null
     if (player) return { room, player, rejoined: Boolean(payload.rejoined) }
   }
@@ -538,7 +549,11 @@ export async function joinRoom({ playerName, code, existingPlayerId = null }) {
 
 /** Ready / unready (hosts are always ready). */
 export async function setPlayerReady({ code, playerId, ready }) {
-  const rpc = await callRpc('imposter_set_ready', { p_code: code, p_player_id: playerId, p_ready: Boolean(ready) })
+  const rpc = await callRpc('imposter_set_ready', {
+    p_code: code,
+    p_player_id: playerId,
+    p_ready: Boolean(ready),
+  })
   if (rpc.ok) return normalizeRoom(rpc.data?.room ?? rpc.data, { code })
   const result = await mutateRoom(code, (room) => {
     const players = room.players.map((p) => (p.id === playerId && !p.isHost ? { ...p, ready: Boolean(ready), lastSeen: now() } : p))
@@ -549,7 +564,10 @@ export async function setPlayerReady({ code, playerId, ready }) {
 
 /** Leave the lobby. If the host leaves, the room is handed over or closed. */
 export async function leaveRoom({ code, playerId }) {
-  const rpc = await callRpc('imposter_leave_room', { p_code: code, p_player_id: playerId })
+  const rpc = await callRpc('imposter_leave_room', {
+    p_code: code,
+    p_player_id: playerId,
+  })
   if (rpc.ok) {
     /* The host leaving an empty room closes it: the row is already gone. */
     if (rpc.data?.closed || rpc.data?.room === null) return { room: null, closed: true }
@@ -569,26 +587,117 @@ export async function leaveRoom({ code, playerId }) {
       // Promote the longest-standing remaining player.
       const nextHost = players.slice().sort((a, b) => a.joinedAt - b.joinedAt)[0]
       const promoted = players.map((p) => (p.id === nextHost.id ? { ...p, isHost: true, ready: true } : p))
-      return { patch: { players: promoted, hostId: nextHost.id }, nextPlayerCount: promoted.length }
+      return {
+        patch: { players: promoted, hostId: nextHost.id },
+        nextPlayerCount: promoted.length,
+      }
     }
     return { patch: { players }, nextPlayerCount: players.length }
   })
   return { room: result.room, closed: Boolean(result.removed) }
 }
 
+/**
+ * Host-only: remove a player from the table and keep it playable.
+ *
+ * This is the "they are never coming back" button. The removed player is taken
+ * out of the roster, the clue order, the current ballot and the reveal list —
+ * but NOT into `eliminated`, because they were not voted out and must not turn
+ * up as "VOTED OUT R2" on the end screen. Every count on the table is derived
+ * from the roster, so the round resolves the moment the last missing player is
+ * gone.
+ */
+export async function removePlayer({ code, playerId }) {
+  const result = await mutateRoom(code, (room) => {
+    const leaving = room.players.find((p) => p.id === playerId)
+    if (!leaving) return { patch: { ...room }, nextPlayerCount: room.players.length }
+    if (leaving.isHost || room.hostId === playerId) fail('HOST_PROTECTED', 'The host cannot be removed.')
+    const players = room.players.filter((p) => p.id !== playerId)
+    /* The fallback write REPLACES the room document — so send the whole room,
+       not a delta, or a kick would silently wipe config, game and history. */
+    const patch = { ...room, players }
+
+    if (room.game) {
+      const game = { ...room.game }
+      if (Array.isArray(game.clueOrder)) game.clueOrder = game.clueOrder.filter((id) => id !== playerId)
+      if (Array.isArray(game.revealedBy)) game.revealedBy = game.revealedBy.filter((id) => id !== playerId)
+      if (Array.isArray(game.submitted)) game.submitted = game.submitted.filter((id) => id !== playerId)
+      if (game.votes) {
+        const votes = { ...game.votes }
+        delete votes[playerId]
+        game.votes = votes
+      }
+      if (game.turnPlayerId === playerId) {
+        game.turnPlayerId = null // resolves to the next living name in the order
+        game.timer = {
+          running: false,
+          duration: room.config?.turnSeconds || 30,
+          startedAt: null,
+        }
+      }
+      if (game.pendingGuess?.playerId === playerId) {
+        game.pendingGuess = null
+        game.guess = { playerId, text: '', at: now(), waived: true }
+      }
+      patch.game = game
+    }
+
+    return {
+      patch,
+      nextPlayerCount: players.length,
+      /* The host cleared the room out — do not leave an empty row behind. */
+      remove: players.length === 0,
+    }
+  })
+  return result
+}
+
+/**
+ * Anyone online may claim the room when the host has gone quiet — the caller
+ * decides (see vanishSuccessor); this only refuses a claim the room itself can
+ * disprove, so two clients racing a takeover cannot both win.
+ */
+export async function claimHost({ code, playerId }) {
+  const result = await mutateRoom(code, (room) => {
+    const claimant = room.players.find((p) => p.id === playerId)
+    if (!claimant) fail('NOT_FOUND', 'You are not in that room any more.')
+    if (room.hostId === playerId) return { patch: { ...room }, nextPlayerCount: room.players.length }
+    const host = room.players.find((p) => p.isHost || p.id === room.hostId) || null
+    if (host && isPlayerOnline(host, HOST_VANISH_MS)) return { patch: { ...room }, nextPlayerCount: room.players.length }
+    const players = room.players.map((p) => ({
+      ...p,
+      isHost: p.id === playerId,
+      ready: p.id === playerId ? true : p.ready,
+    }))
+    return {
+      patch: { ...room, players, hostId: playerId },
+      nextPlayerCount: players.length,
+    }
+  })
+  return result
+}
+
 /** Heartbeat so the lobby can flag dropped players. */
 export async function pingPlayer({ code, playerId }) {
-  const rpc = await callRpc('imposter_heartbeat', { p_code: code, p_player_id: playerId })
+  const rpc = await callRpc('imposter_heartbeat', {
+    p_code: code,
+    p_player_id: playerId,
+  })
   if (rpc.ok) return true
   await mutateRoom(code, (room) => ({
-    patch: { players: room.players.map((p) => (p.id === playerId ? { ...p, online: true, lastSeen: now() } : p)) },
+    patch: {
+      players: room.players.map((p) => (p.id === playerId ? { ...p, online: true, lastSeen: now() } : p)),
+    },
   }))
   return true
 }
 
 /** Shallow-merge arbitrary public fields (config, phase, timers, …). */
 export async function patchRoom({ code, patch, secrets, status, playerCount }) {
-  const rpc = await callRpc('imposter_patch_room', { p_code: code, p_patch: { ...patch, updatedAt: now() } })
+  const rpc = await callRpc('imposter_patch_room', {
+    p_code: code,
+    p_patch: { ...patch, updatedAt: now() },
+  })
   if (rpc.ok) {
     const room = normalizeRoom(rpc.data?.room ?? rpc.data, { code })
     return { room }
@@ -606,7 +715,11 @@ export async function patchRoom({ code, patch, secrets, status, playerCount }) {
  * their own id, so a client only ever has to read its own slice.
  */
 export async function writeSecrets({ code, secrets, roomPatch = {}, status }) {
-  const rpc = await callRpc('imposter_set_secrets', { p_code: code, p_secrets: secrets, p_patch: { ...roomPatch, updatedAt: now() } })
+  const rpc = await callRpc('imposter_set_secrets', {
+    p_code: code,
+    p_secrets: secrets,
+    p_patch: { ...roomPatch, updatedAt: now() },
+  })
   if (rpc.ok) return { room: normalizeRoom(rpc.data?.room ?? rpc.data, { code }) }
 
   const result = await mutateRoom(code, (room) => ({
@@ -624,7 +737,10 @@ export async function fetchSecret({ code, playerId }) {
   if (error) throw classifyError(error)
   if (!data) fail('NOT_FOUND', 'Room not found')
   const secrets = data.secrets && typeof data.secrets === 'object' ? data.secrets : {}
-  return { secret: secrets[playerId] || null, room: normalizeRoom(data.room, { code }) }
+  return {
+    secret: secrets[playerId] || null,
+    room: normalizeRoom(data.room, { code }),
+  }
 }
 
 /** Atomic vote + submitted tracking (upsert semantics, never overwrites others). */
@@ -676,10 +792,7 @@ export async function terminateRoom(code) {
 export async function sweepExpiredRooms() {
   const client = await requireClient()
   const stale = new Date(now() - supabaseConfig.roomTtlMinutes * 60_000).toISOString()
-  const { error } = await client
-    .from(supabaseConfig.table)
-    .delete()
-    .or(`status.eq.${ROOM_STATUS.TERMINATED},updated_at.lt.${stale}`)
+  const { error } = await client.from(supabaseConfig.table).delete().or(`status.eq.${ROOM_STATUS.TERMINATED},updated_at.lt.${stale}`)
   if (error) throw classifyError(error)
   return true
 }
@@ -700,7 +813,12 @@ export function subscribeToRoom(code, { onRoom, onStatus } = {}) {
     .channel(`imposter-room-${code}`)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: supabaseConfig.table, filter: `code=eq.${code}` },
+      {
+        event: '*',
+        schema: 'public',
+        table: supabaseConfig.table,
+        filter: `code=eq.${code}`,
+      },
       (payload) => {
         /*
          * Closing a room deletes its row, so a DELETE event is how everybody
@@ -717,7 +835,14 @@ export function subscribeToRoom(code, { onRoom, onStatus } = {}) {
           onStatus?.('terminated')
           return
         }
-        onRoom?.(normalizeRoom(row.room, { code: row.code, hostId: row.host_id, status: row.status }), row)
+        onRoom?.(
+          normalizeRoom(row.room, {
+            code: row.code,
+            hostId: row.host_id,
+            status: row.status,
+          }),
+          row,
+        )
       },
     )
     .subscribe((status) => {

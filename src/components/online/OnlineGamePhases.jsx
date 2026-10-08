@@ -20,10 +20,32 @@ import { haptic } from '../../lib/haptics.js'
 import { ConnectionBanner } from './ConnectionBanner.jsx'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
-import { roomAlive } from '../../lib/onlineGame.js'
+import { driverFor, isPlayerOnline, roomAlive } from '../../lib/onlineGame.js'
 import { voteOutcomeLine } from '../../lib/gameEngine.js'
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * Living players whose heartbeat has gone quiet. The screens read this to
+ * explain a stalled table and to arm the host's escape hatch.
+ */
+function darkPhones(room, alive) {
+  const ids = new Set(alive.map((p) => p.id))
+  return (room.players || []).filter((p) => ids.has(p.id) && !isPlayerOnline(p))
+}
+
+const namesLine = (list) => (list.length === 1 ? `${list[0]}'s phone` : list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : '')
+
+/** The small text-button every screen gets, so nobody is trapped in a room. */
+function ExitRow({ isHost, onAsk }) {
+  return (
+    <div className="pb-1 text-center">
+      <button type="button" onClick={onAsk} className="font-display text-[10.5px] uppercase tracking-[.24em] text-violet-200/45 transition hover:text-violet-100">
+        {isHost ? 'close room' : 'leave room'}
+      </button>
+    </div>
+  )
+}
 
 /**
  * The caught imposter's one guess. Only that player's device shows the input —
@@ -38,14 +60,8 @@ function GuessPanel({ pending, waiting, submitted, onGuess }) {
     return (
       <Panel className="px-4 py-5 text-center">
         <p className="label mb-2 text-[9px]">final guess</p>
-        <p className="font-display text-[clamp(18px,6vw,24px)] tracking-[.1em] text-white text-neon">
-          {pending?.name || 'The accused'}
-        </p>
-        <p className="mt-2 text-[13px] leading-relaxed text-violet-200/70">
-          {submitted
-            ? 'Guess locked. Waiting for the verdict…'
-            : 'Is naming the crew\'s word on their own device. Hold tight.'}
-        </p>
+        <p className="font-display text-[clamp(18px,6vw,24px)] tracking-[.1em] text-white text-neon">{pending?.name || 'The accused'}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-violet-200/70">{submitted ? 'Guess locked. Waiting for the verdict…' : "Is naming the crew's word on their own device. Hold tight."}</p>
       </Panel>
     )
   }
@@ -61,12 +77,8 @@ function GuessPanel({ pending, waiting, submitted, onGuess }) {
   return (
     <Panel className="px-4 py-5">
       <p className="label mb-2 text-[9px]">one guess — nobody else should see this</p>
-      <h2 className="text-center font-display text-[clamp(19px,6.5vw,26px)] tracking-[.12em] text-white text-neon">
-        WHAT WAS THE WORD?
-      </h2>
-      <p className="mt-2 text-center text-[12.5px] leading-relaxed text-violet-200/65">
-        Name it right and the imposters take the whole game.
-      </p>
+      <h2 className="text-center font-display text-[clamp(19px,6.5vw,26px)] tracking-[.12em] text-white text-neon">WHAT WAS THE WORD?</h2>
+      <p className="mt-2 text-center text-[12.5px] leading-relaxed text-violet-200/65">Name it right and the imposters take the whole game.</p>
       <input
         id="online-final-guess"
         value={text}
@@ -100,17 +112,19 @@ export function OnlineGamePhases({ online, onExit }) {
   const isHost = view?.isHost
   const gameOver = Boolean(room.game?.winner)
 
-  const header = (eyebrow, badge) => (
-    <ScreenHeader
-      title={gameOver ? 'Result' : `Round ${room.game?.round || 1}`}
-      eyebrow={eyebrow}
-      onBack={() => setConfirm(isHost ? 'close' : 'leave')}
-      right={badge}
-    />
-  )
+  const header = (eyebrow, badge) => <ScreenHeader title={gameOver ? 'Result' : `Round ${room.game?.round || 1}`} eyebrow={eyebrow} onBack={() => setConfirm({ kind: isHost ? 'close' : 'leave' })} right={badge} />
+
+  const dark = useMemo(() => (room?.game && !gameOver ? darkPhones(room, roomAlive(room)) : []), [room, gameOver])
+  const canRescue = Boolean(view?.isDriver)
+  const driver = room ? driverFor(room) : null
 
   const exit = async () => {
-    if (confirm === 'close' && isHost) await actions.closeRoom()
+    if (confirm?.kind === 'remove') {
+      await actions.removePlayer(confirm.id)
+      setConfirm(null)
+      return
+    }
+    if (confirm?.kind === 'close' && isHost) await actions.closeRoom()
     else await actions.leave()
     setConfirm(null)
     onExit?.()
@@ -162,10 +176,7 @@ export function OnlineGamePhases({ online, onExit }) {
       <>
         <ScreenHeader title="Room closed" eyebrow="session ended" onBack={onExit} />
         <div className="shell-narrow flex-1 py-6">
-          <InlineNotice tone="error">
-            The host closed this room and the game is over for everyone. Create a new room whenever you are ready —
-            nothing was left behind on the server.
-          </InlineNotice>
+          <InlineNotice tone="error">The host closed this room and the game is over for everyone. Create a new room whenever you are ready — nothing was left behind on the server.</InlineNotice>
           <Button className="mt-4" variant="primary" fullWidth onClick={onExit}>
             Back to online menu
           </Button>
@@ -192,16 +203,7 @@ export function OnlineGamePhases({ online, onExit }) {
     return (
       <>
         {header('game over', <Badge tone={room.game.winner === 'crew' ? 'cyan' : 'magenta'}>{room.game.winner}</Badge>)}
-        <WinnerScreen
-          winner={room.game.winner}
-          reason={room.game.lastResult?.reason}
-          word={mySecret?.role === ROLES.IMPOSTER ? null : mySecret?.word || null}
-          players={players}
-          round={room.game.round}
-          onPlayAgain={isHost ? actions.playAgain : null}
-          onExit={onExit}
-          exitLabel="Leave room"
-        >
+        <WinnerScreen winner={room.game.winner} reason={room.game.lastResult?.reason} word={mySecret?.role === ROLES.IMPOSTER ? null : mySecret?.word || null} players={players} round={room.game.round} onPlayAgain={isHost ? actions.playAgain : null} onExit={onExit} exitLabel="Leave room">
           {room.game.lastResult && (
             <Panel className="px-4 py-3">
               <p className="label mb-2 text-[9px]">final tally</p>
@@ -219,13 +221,15 @@ export function OnlineGamePhases({ online, onExit }) {
         </WinnerScreen>
         <ConfirmDialog
           open={Boolean(confirm)}
-          title={isHost ? 'Close this room?' : 'Leave this room?'}
+          title={confirm?.kind === 'remove' ? `Remove ${confirm.name} from the room?` : isHost ? 'Close this room?' : 'Leave this room?'}
           message={
-            isHost
-              ? 'Every player is disconnected and the room is deleted — play again first if you want another round. Nobody can rejoin a closed room.'
-              : 'You can rejoin with the same name while the room is live. The host closes it when the table is finished.'
+            confirm?.kind === 'remove'
+              ? 'Their seat, ballot and clue turn are cleared and the round continues without them. If their phone wakes up, they can join a future room with a new seat — this room will say it no longer holds them.'
+              : isHost
+                ? 'Every player is disconnected and the room is deleted — play again first if you want another round. Nobody can rejoin a closed room.'
+                : 'You can rejoin with the same name while the room is live. The host closes it when the table is finished.'
           }
-          confirmLabel={isHost ? 'Close room' : 'Leave'}
+          confirmLabel={confirm?.kind === 'remove' ? 'Remove player' : isHost ? 'Close room' : 'Leave'}
           onCancel={() => setConfirm(null)}
           onConfirm={exit}
         />
@@ -241,13 +245,7 @@ export function OnlineGamePhases({ online, onExit }) {
         {header('secret reveal', <Badge tone="cyan">{`${view.progress.cast}/${view.progress.total} seen`}</Badge>)}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
           <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
-          <StatusStrip
-            round={room.game.round}
-            phase="secret reveal"
-            alive={alive.length}
-            total={room.players.length}
-            right={<span className="font-display text-[11px] tracking-[.14em] text-cyan-100">{view.me?.name}</span>}
-          />
+          <StatusStrip round={room.game.round} phase="secret reveal" alive={alive.length} total={room.players.length} right={<span className="font-display text-[11px] tracking-[.14em] text-cyan-100">{view.me?.name}</span>} />
 
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-2">
             <SecretCard
@@ -284,15 +282,45 @@ export function OnlineGamePhases({ online, onExit }) {
             </ul>
           </Panel>
 
-          {mineSeen && !cardFlipped && (
-            <InlineNotice tone="success">Secret hidden. Keep your phone to yourself — you can tap the card again to re-read it.</InlineNotice>
+          {mineSeen && !cardFlipped && <InlineNotice tone="success">Secret hidden. Keep your phone to yourself — you can tap the card again to re-read it.</InlineNotice>}
+          {!mineSeen && <p className="text-center text-[11.5px] text-violet-200/50">Reveal your card when nobody is looking over your shoulder.</p>}
+          {view.progress.complete && <p className="text-center text-[11.5px] text-cyan-200/75">Everyone has seen their card — the host will open the round.</p>}
+          {!view.progress.complete && dark.length > 0 && (
+            <InlineNotice tone="warn">
+              {namesLine(dark.map((p) => p.name))} {dark.length > 1 ? 'have' : 'has'} gone quiet — nobody tapped a card on {dark.length > 1 ? 'those phones' : 'that phone'}. The round is not lost; the host can open it without {dark.length > 1 ? 'them' : 'them'}.
+            </InlineNotice>
           )}
-          {!mineSeen && (
-            <p className="text-center text-[11.5px] text-violet-200/50">Reveal your card when nobody is looking over your shoulder.</p>
+          {!view.progress.complete && dark.length === 0 && <p className="text-center text-[11.5px] text-violet-200/50">Still waiting on {view.waitingOn.length === 1 ? view.waitingOn[0] : view.waitingOn.join(' and ')} — flip those cards.</p>}
+          {canRescue && !view.progress.complete && dark.length > 0 && (
+            <div className="space-y-2">
+              <Button
+                variant="primary"
+                size="lg"
+                fullWidth
+                onClick={() => {
+                  playSfx('swipe')
+                  actions.forceOpenRound()
+                }}
+              >
+                Open the round without {dark.length > 1 ? `${dark.length} players` : dark[0].name}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                fullWidth
+                onClick={() =>
+                  setConfirm({
+                    kind: 'remove',
+                    id: dark[0].id,
+                    name: dark[0].name,
+                  })
+                }
+              >
+                Remove {dark[0].name} from the room
+              </Button>
+            </div>
           )}
-          {view.progress.complete && (
-            <p className="text-center text-[11.5px] text-cyan-200/75">Everyone has seen their card — the host will open the round.</p>
-          )}
+          <ExitRow isHost={isHost} onAsk={() => setConfirm({ kind: isHost ? 'close' : 'leave' })} />
         </div>
       </>
     )
@@ -310,10 +338,7 @@ export function OnlineGamePhases({ online, onExit }) {
               <Badge tone="cyan">round {room.game.round}</Badge>
               <h2 className="font-display text-[19px] leading-tight tracking-[.1em] text-violet-50">GIVE YOUR CLUE.</h2>
               <p className="font-display text-[13px] tracking-[.14em] text-magenta-glow">DON'T REVEAL THE WORD.</p>
-              <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-violet-100/70">
-                One clue per player, in turn order. The timer keeps the table moving — the host starts it when the
-                round opens.
-              </p>
+              <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-violet-100/70">One clue per player, in turn order. The timer keeps the table moving — the host starts it when the round opens.</p>
               <div className="flex flex-wrap justify-center gap-1.5">
                 <Badge tone="muted">{room.config.turnSeconds}s turns</Badge>
                 <Badge tone="muted">{room.config.categoryLabel}</Badge>
@@ -327,9 +352,10 @@ export function OnlineGamePhases({ online, onExit }) {
                 Open the clue round
               </Button>
             ) : (
-              <p className="text-center text-[12px] text-violet-200/55">Waiting for the host to open the round…</p>
+              <p className="text-center text-[12px] text-violet-200/55">{view.hostOffline && driver ? `Your host's phone is offline — ${driver.name} is opening the round now…` : `Waiting for ${driver?.name || 'the host'} to open the round…`}</p>
             )}
           </div>
+          <ExitRow isHost={isHost} onAsk={() => setConfirm({ kind: isHost ? 'close' : 'leave' })} />
         </div>
       </>
     )
@@ -349,17 +375,16 @@ export function OnlineGamePhases({ online, onExit }) {
             phase="clues"
             alive={alive.length}
             total={room.players.length}
-            right={<span className="font-mono text-[10.5px] tabular text-violet-200/60">clue {view.index}/{view.total}</span>}
+            right={
+              <span className="font-mono text-[10.5px] tabular text-violet-200/60">
+                clue {view.index}/{view.total}
+              </span>
+            }
           />
 
           <div className="glass clip-hud px-4 py-4 text-center">
             <p className="label text-[9px]">clue turn</p>
-            <motion.p
-              key={view.turn?.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-1.5 font-display text-[clamp(20px,7vw,28px)] tracking-[.1em] text-white text-neon"
-            >
+            <motion.p key={view.turn?.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-1.5 font-display text-[clamp(20px,7vw,28px)] tracking-[.1em] text-white text-neon">
               {view.turn?.name || '—'}
             </motion.p>
             <div className="mt-3 flex items-center justify-center gap-3">
@@ -368,13 +393,7 @@ export function OnlineGamePhases({ online, onExit }) {
           </div>
 
           <div className="flex flex-col items-center gap-4">
-            <CountdownRing
-              secondsLeft={secondsLeft}
-              duration={room.config.turnSeconds}
-              running={running}
-              muted={!view.isMyTurn}
-              label={running ? 'seconds' : 'ready'}
-            />
+            <CountdownRing secondsLeft={secondsLeft} duration={room.config.turnSeconds} running={running} muted={!view.isMyTurn} label={running ? 'seconds' : 'ready'} />
             {view.isMyTurn ? (
               <div className="flex flex-wrap justify-center gap-2">
                 {!running && (
@@ -398,6 +417,10 @@ export function OnlineGamePhases({ online, onExit }) {
                   {view.isLastClue ? 'Clues done — vote' : 'Clue given, next'}
                 </Button>
               </div>
+            ) : view.turnOffline ? (
+              <InlineNotice tone="warn" className="max-w-md">
+                {view.turn?.name}'s phone has gone quiet and no clue is coming. The host can skip straight past this turn.
+              </InlineNotice>
             ) : (
               <InlineNotice tone="info" className="max-w-md">
                 {view.turn?.name} is giving their clue. Listen for the detail only the crew would know.
@@ -405,13 +428,31 @@ export function OnlineGamePhases({ online, onExit }) {
             )}
           </div>
 
-          <div className="mt-auto">
+          <div className="mt-auto space-y-2">
             {view.canAdvance && !view.isMyTurn && (
-              <Button variant="quiet" size="sm" fullWidth onClick={actions.nextClue}>
-                Skip {view.turn?.name}'s turn (host override)
+              <Button variant={view.turnOffline ? 'primary' : 'quiet'} size={view.turnOffline ? 'lg' : 'sm'} fullWidth onClick={actions.nextClue}>
+                Skip {view.turn?.name}'s turn
+                {view.turnOffline ? ' — their phone is offline' : ' (host override)'}
+              </Button>
+            )}
+            {canRescue && dark.length > 0 && dark.some((p) => p.id !== view.turn?.id || !view.canAdvance) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                fullWidth
+                onClick={() =>
+                  setConfirm({
+                    kind: 'remove',
+                    id: dark[0].id,
+                    name: dark[0].name,
+                  })
+                }
+              >
+                Remove {dark[0].name} from the room…
               </Button>
             )}
           </div>
+          <ExitRow isHost={isHost} onAsk={() => setConfirm({ kind: isHost ? 'close' : 'leave' })} />
         </div>
       </>
     )
@@ -435,9 +476,7 @@ export function OnlineGamePhases({ online, onExit }) {
               <div className="text-center">
                 <p className="label text-[9px]">secret ballot</p>
                 <h2 className="mt-1 font-display text-[clamp(18px,6.5vw,24px)] tracking-[.12em] text-white text-neon">WHO IS THE IMPOSTER?</h2>
-                <p className="mt-1.5 text-[11.5px] text-violet-200/55">
-                  {mine ? 'Your vote is locked. Counts stay hidden until every ballot is in.' : 'Tap a name, then lock your vote. Nobody sees it until the tally.'}
-                </p>
+                <p className="mt-1.5 text-[11.5px] text-violet-200/55">{mine ? 'Your vote is locked. Counts stay hidden until every ballot is in.' : 'Tap a name, then lock your vote. Nobody sees it until the tally.'}</p>
               </div>
 
               <VoteGrid
@@ -470,6 +509,46 @@ export function OnlineGamePhases({ online, onExit }) {
               {progress.complete && <InlineNotice tone="cyan">All ballots in — revealing the tally…</InlineNotice>}
             </>
           )}
+
+          {!progress.complete && view.waitingOn.length > 0 && (
+            <InlineNotice tone={view.waitingOn.some((w) => w.offline) ? 'warn' : 'info'}>
+              Still in the lobby of democracy: {view.waitingOn.map((w) => (w.offline ? `${w.name} (phone offline)` : w.name)).join(', ')}
+              {view.waitingOn.some((w) => w.offline) ? ' — the host does not have to wait for a dead phone.' : '.'}
+            </InlineNotice>
+          )}
+          {canRescue && !progress.complete && (
+            <div className="space-y-2">
+              <Button
+                variant={view.waitingOn.some((w) => w.offline) ? 'primary' : 'ghost'}
+                size="sm"
+                fullWidth
+                onClick={() => {
+                  playSfx('vote')
+                  actions.forceTally()
+                }}
+              >
+                Close voting and tally the {progress.cast} ballot
+                {progress.cast === 1 ? '' : 's'} in
+              </Button>
+              {view.waitingOn.some((w) => w.offline) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  fullWidth
+                  onClick={() =>
+                    setConfirm({
+                      kind: 'remove',
+                      id: view.waitingOn.find((w) => w.offline).id,
+                      name: view.waitingOn.find((w) => w.offline).name,
+                    })
+                  }
+                >
+                  Remove {view.waitingOn.find((w) => w.offline).name} from the room…
+                </Button>
+              )}
+            </div>
+          )}
+          <ExitRow isHost={isHost} onAsk={() => setConfirm({ kind: isHost ? 'close' : 'leave' })} />
         </div>
       </>
     )
@@ -484,14 +563,15 @@ export function OnlineGamePhases({ online, onExit }) {
         {header('final guess', <Badge tone="magenta">one guess</Badge>)}
         <div className="shell-narrow flex flex-1 flex-col gap-3 pb-5">
           <ConnectionBanner connection={connection} onRetry={actions.refresh} onLeave={onExit} />
-          <GuessPanel
-            pending={pending}
-            waiting={waiting}
-            submitted={view.submitted}
-            onGuess={(text) => online.submitGuess(text)}
-          />
-          <div className="mt-auto">
-            <Button variant="quiet" size="sm" fullWidth onClick={() => setConfirm(isHost ? 'close' : 'leave')}>
+          <GuessPanel pending={pending} waiting={waiting} submitted={view.submitted} onGuess={(text) => online.submitGuess(text)} />
+          {view.accusedOffline && !view.submitted && <InlineNotice tone="warn">{pending?.name || 'The accused'} has one guess coming and their phone is offline. Nobody has to watch a frozen screen — the host may wave the guess through, which counts as a miss.</InlineNotice>}
+          <div className="mt-auto space-y-2">
+            {canRescue && view.accusedOffline && !view.submitted && (
+              <Button variant="primary" size="lg" fullWidth onClick={actions.waiveGuess}>
+                Skip {pending?.name || 'their'}'s guess — count it as a miss
+              </Button>
+            )}
+            <Button variant="quiet" size="sm" fullWidth onClick={() => setConfirm({ kind: isHost ? 'close' : 'leave' })}>
               {isHost ? 'Close room' : 'Leave room'}
             </Button>
           </div>
@@ -528,23 +608,10 @@ export function OnlineGamePhases({ online, onExit }) {
 
           <div className="text-center">
             <p className="label text-[9px]">the table accused</p>
-            <motion.h2
-              initial={{ opacity: 0, scale: 0.94, filter: 'blur(10px)' }}
-              animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-              transition={{ duration: 0.5 }}
-              className="mt-1.5 font-display text-[clamp(22px,8vw,32px)] tracking-[.1em] text-white text-neon"
-            >
+            <motion.h2 initial={{ opacity: 0, scale: 0.94, filter: 'blur(10px)' }} animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }} transition={{ duration: 0.5 }} className="mt-1.5 font-display text-[clamp(22px,8vw,32px)] tracking-[.1em] text-white text-neon">
               {result?.eliminatedName || 'Nobody'}
             </motion.h2>
-            <p className="mt-2 font-display text-[12.5px] tracking-[.18em] text-magenta-glow">
-              {result?.noImposter
-                ? 'EVERY PLAYER WAS CREW THIS ROUND'
-                : result?.tie
-                  ? 'THE VOTE WAS SPLIT — NOBODY LEAVES'
-                  : removedImposter
-                    ? 'CAUGHT — THAT WAS AN IMPOSTER !'
-                    : 'VOTED OUT — A CREWMATE !'}
-            </p>
+            <p className="mt-2 font-display text-[12.5px] tracking-[.18em] text-magenta-glow">{result?.noImposter ? 'EVERY PLAYER WAS CREW THIS ROUND' : result?.tie ? 'THE VOTE WAS SPLIT — NOBODY LEAVES' : removedImposter ? 'CAUGHT — THAT WAS AN IMPOSTER !' : 'VOTED OUT — A CREWMATE !'}</p>
           </div>
 
           <Panel className="px-4 py-3">
@@ -558,13 +625,7 @@ export function OnlineGamePhases({ online, onExit }) {
             <StatBlock label="imposters left" value="?" tone="magenta" />
           </div>
 
-          <InlineNotice tone={result?.noImposter || result?.tie ? 'warn' : removedImposter ? 'success' : 'error'}>
-            {result?.noImposter
-              ? chaosNoImposterLine()
-              : result?.tie
-                ? 'A split vote means nobody leaves the ship. Talk it through and go again.'
-                : outcomeLine}
-          </InlineNotice>
+          <InlineNotice tone={result?.noImposter || result?.tie ? 'warn' : removedImposter ? 'success' : 'error'}>{result?.noImposter ? chaosNoImposterLine() : result?.tie ? 'A split vote means nobody leaves the ship. Talk it through and go again.' : outcomeLine}</InlineNotice>
 
           <div className="mt-auto space-y-2">
             {view.isDriver ? (
@@ -572,9 +633,9 @@ export function OnlineGamePhases({ online, onExit }) {
                 Next round
               </Button>
             ) : (
-              <p className="text-center text-[12px] text-violet-200/55">Waiting for the host to open the next round…</p>
+              <p className="text-center text-[12px] text-violet-200/55">{view.hostOffline && driver ? `Your host's phone is offline — ${driver.name} is carrying the table. Next round comes from them now.` : `Waiting for ${driver?.name || 'the host'} to open the next round…`}</p>
             )}
-            <Button variant="quiet" size="sm" fullWidth onClick={() => setConfirm(isHost ? 'close' : 'leave')}>
+            <Button variant="quiet" size="sm" fullWidth onClick={() => setConfirm({ kind: isHost ? 'close' : 'leave' })}>
               {isHost ? 'Close room' : 'Leave room'}
             </Button>
           </div>

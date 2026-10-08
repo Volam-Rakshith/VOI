@@ -25,8 +25,10 @@ import {
   isConfigured,
   refreshConfiguration,
   testBackendConfig,
+  claimHost as apiClaimHost,
   joinRoom as apiJoinRoom,
   leaveRoom as apiLeaveRoom,
+  removePlayer as apiRemovePlayer,
   patchRoom,
   pingPlayer,
   setPlayerReady,
@@ -36,10 +38,10 @@ import {
   writeSecrets,
 } from '../lib/onlineService.js'
 import { assignOpeningRoles, assignRolesFor, isChaosMode, isChaosRound, scheduleNextChaosRound } from '../lib/gameEngine.js'
-import { buildClueOrder, computeResult, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, turnPlayer, voteProgress } from '../lib/onlineGame.js'
+import { HOST_VANISH_MS, buildClueOrder, clueOrderFor, computeResult, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, settleWinner, turnPlayer, vanishSuccessor, voteProgress } from '../lib/onlineGame.js'
 import { normalizeRoom } from '../lib/onlineService.js'
 import { reloadRuntimeFile, subscribeToBackend } from '../lib/runtimeConfig.js'
-import { readJSON, remove, writeJSON } from '../utils/storage.js'
+import { readJSON, readSession, remove, removeSession, writeJSON, writeSession } from '../utils/storage.js'
 
 /**
  * Reserved key inside the PRIVATE `secrets` map that holds the round's word.
@@ -49,25 +51,93 @@ import { readJSON, remove, writeJSON } from '../utils/storage.js'
 const SECRET_META_KEY = '__chaos_meta__'
 
 const HEARTBEAT_MS = 15000
+/** How often a room re-checks that its host is still breathing. */
+const HOST_CHECK_MS = 15000
+
+/*
+ * THE SEAT MARKER (sessionStorage)
+ * --------------------------------
+ * The stored session (localStorage) is what lets a player reclaim their seat —
+ * but on its own it must never drag anyone back into a room they did not ask
+ * to be in. That is what the seat marker is for: it is written only when THIS
+ * TAB deliberately creates, joins or reclaims a room, and it dies with the tab.
+ * A brand-new visit, or a second player on the same device, therefore lands on
+ * the setup screen with the last room offered as a choice — never as a
+ * fait accompli. A refresh inside the room keeps the marker, so CONTINUE GAME
+ * after a reload still walks straight back to the table.
+ */
+const readSeat = () => {
+  const seat = readSession(STORAGE_KEYS.seat, null)
+  return seat && typeof seat === 'object' ? seat : null
+}
+const seatMatches = (seat, session) => Boolean(seat?.code && session?.code && seat.code === session.code && seat.playerId === session.playerId)
 /** While nothing is configured, how often to re-read the published file. */
 const CONFIG_POLL_MS = 15000
 /** How many recent words a replay must avoid before it may repeat one. */
 const RECENT_WORDS = 5
 const RECONNECT_DELAYS = [1200, 2400, 4800, 8000, 12000, 20000]
 
-const emptySession = () => ({ code: null, playerId: null, name: '', isHost: false, roles: null, deck: null })
+const emptySession = () => ({
+  code: null,
+  playerId: null,
+  name: '',
+  isHost: false,
+  roles: null,
+  deck: null,
+})
+
+/*
+ * A promoted driver (the host went dark) has no role map — those live in the
+ * host's session. The per-player secret entries hold every role, and any
+ * device already fetches its own, so the driver can fetch the roster the same
+ * way instead of stalling the tally. Returns null unless every seat answered.
+ */
+async function collectRolesFromSecrets(code, room) {
+  const map = {}
+  await Promise.all(
+    (room.players || []).map(async (p) => {
+      try {
+        const { secret } = await fetchSecret({ code, playerId: p.id })
+        if (secret?.role) map[p.id] = secret.role
+      } catch {
+        /* missing seat — handled by the caller */
+      }
+    }),
+  )
+  return Object.keys(map).length === (room.players || []).length ? map : null
+}
 
 export function useOnlineRoom(bank) {
-  const [session, setSession] = useState(() => ({ ...emptySession(), ...(readJSON(STORAGE_KEYS.session, {}) || {}) }))
+  const [session, setSession] = useState(() => ({
+    ...emptySession(),
+    ...(readJSON(STORAGE_KEYS.session, {}) || {}),
+  }))
   const [room, setRoom] = useState(null)
   const [secret, setSecret] = useState(null)
-  const [connection, setConnection] = useState({ state: 'idle', error: null, attempt: 0 })
+  const [connection, setConnection] = useState({
+    state: 'idle',
+    error: null,
+    attempt: 0,
+  })
   const [busy, setBusy] = useState(null) // 'creating' | 'joining' | 'starting' | ...
+
+  const [seat, setSeat] = useState(() => readSeat())
+  const [notice, setNotice] = useState(null)
+  const seated = seatMatches(seat, session)
 
   const unsubscribeRef = useRef(null)
   const transitionLock = useRef(new Set())
   const sessionRef = useRef(session)
   sessionRef.current = session
+  const seatRef = useRef(seat)
+  seatRef.current = seat
+
+  /** This tab is deliberately sitting at a table from now on. */
+  const takeSeat = useCallback((next) => {
+    const value = { code: next.code, playerId: next.playerId }
+    writeSession(STORAGE_KEYS.seat, value)
+    setSeat(value)
+  }, [])
 
   useEffect(() => {
     if (session.code) writeJSON(STORAGE_KEYS.session, session)
@@ -78,15 +148,35 @@ export function useOnlineRoom(bank) {
   /* ------------------------------------------------------------------ */
   const clearSession = useCallback(() => {
     remove(STORAGE_KEYS.session)
+    removeSession(STORAGE_KEYS.seat)
+    setSeat(null)
     setSession(emptySession())
     setRoom(null)
     setSecret(null)
   }, [])
 
-  const applyRoom = useCallback((next) => {
-    setRoom(next)
-    return next
-  }, [])
+  /**
+   * The room is the source of truth about who is at the table: the moment this
+   * device is no longer on the roster (the host removed it), the seat is gone
+   * and the player is told why instead of watching a table they left.
+   */
+  const applyRoom = useCallback(
+    (next) => {
+      setRoom(next)
+      const me = sessionRef.current.playerId
+      if (next && me && Array.isArray(next.players) && next.players.length && !next.players.some((p) => p.id === me) && next.status !== ROOM_STATUS.TERMINATED) {
+        clearSession()
+        setConnection({ state: 'idle', error: null, attempt: 0 })
+        setNotice({
+          id: Date.now(),
+          tone: 'error',
+          text: 'The host removed you from the room.',
+        })
+      }
+      return next
+    },
+    [clearSession],
+  )
 
   /* ------------------------------------------------------------------ */
   /* Backend configuration (runtime, no rebuild)                         */
@@ -183,7 +273,13 @@ export function useOnlineRoom(bank) {
   const refreshRoom = useCallback(
     async (code) => {
       const row = await fetchRoomRow(code)
-      return applyRoom(normalizeRoom(row.room, { code: row.code, hostId: row.host_id, status: row.status }))
+      return applyRoom(
+        normalizeRoom(row.room, {
+          code: row.code,
+          hostId: row.host_id,
+          status: row.status,
+        }),
+      )
     },
     [applyRoom],
   )
@@ -193,11 +289,18 @@ export function useOnlineRoom(bank) {
   /* ------------------------------------------------------------------ */
   const createRoom = useCallback(
     async (playerName, config) => {
-      if (!isConfigured()) return { ok: false, error: friendlyRoomError({ code: 'NOT_CONFIGURED' }) }
+      if (!isConfigured())
+        return {
+          ok: false,
+          error: friendlyRoomError({ code: 'NOT_CONFIGURED' }),
+        }
       setBusy('creating')
       setConnection({ state: 'connecting', error: null, attempt: 0 })
       try {
-        const { room: created, player } = await apiCreateRoom({ playerName, config })
+        const { room: created, player } = await apiCreateRoom({
+          playerName,
+          config,
+        })
         const next = {
           code: created.code,
           playerId: player.id,
@@ -207,7 +310,9 @@ export function useOnlineRoom(bank) {
           deck: { categoryLabel: created.config.categoryLabel },
         }
         setSession(next)
+        takeSeat(next)
         setRoom(created)
+        setNotice(null)
         setConnection({ state: 'connected', error: null, attempt: 0 })
         return { ok: true, code: created.code, room: created }
       } catch (error) {
@@ -218,12 +323,16 @@ export function useOnlineRoom(bank) {
         setBusy(null)
       }
     },
-    [],
+    [takeSeat],
   )
 
   const joinRoom = useCallback(
     async (playerName, code) => {
-      if (!isConfigured()) return { ok: false, error: friendlyRoomError({ code: 'NOT_CONFIGURED' }) }
+      if (!isConfigured())
+        return {
+          ok: false,
+          error: friendlyRoomError({ code: 'NOT_CONFIGURED' }),
+        }
       setBusy('joining')
       setConnection({ state: 'connecting', error: null, attempt: 0 })
       try {
@@ -239,7 +348,9 @@ export function useOnlineRoom(bank) {
           deck: previous.code === joined.code ? previous.deck : null,
         }
         setSession(next)
+        takeSeat(next)
         setRoom(joined)
+        setNotice(null)
         setConnection({ state: 'connected', error: null, attempt: 0 })
         return { ok: true, room: joined, rejoined }
       } catch (error) {
@@ -250,7 +361,7 @@ export function useOnlineRoom(bank) {
         setBusy(null)
       }
     },
-    [],
+    [takeSeat],
   )
 
   const leave = useCallback(async () => {
@@ -271,65 +382,78 @@ export function useOnlineRoom(bank) {
   /* ------------------------------------------------------------------ */
   /* Realtime subscription + reconnect                                    */
   /* ------------------------------------------------------------------ */
-  const subscribe = useCallback(
-    (code) => {
-      unsubscribeRef.current?.()
-      unsubscribeRef.current = subscribeToRoom(code, {
-        onRoom: (next) => {
-          setRoom((current) => {
-            // Ignore out-of-order payloads from the previous version.
-            if (current && next.updatedAt < (current.updatedAt || 0) && next.status !== ROOM_STATUS.TERMINATED) return current
-            return next
+  const subscribe = useCallback((code) => {
+    unsubscribeRef.current?.()
+    unsubscribeRef.current = subscribeToRoom(code, {
+      onRoom: (next) => {
+        setRoom((current) => {
+          // Ignore out-of-order payloads from the previous version.
+          if (current && next.updatedAt < (current.updatedAt || 0) && next.status !== ROOM_STATUS.TERMINATED) return current
+          return next
+        })
+        setConnection((c) => (c.state === 'connected' && !c.error ? c : { state: 'connected', error: null, attempt: 0 }))
+      },
+      onStatus: (status) => {
+        if (status === 'terminated') {
+          setConnection({
+            state: 'terminated',
+            error: 'The host closed this room.',
+            attempt: 0,
           })
-          setConnection((c) => (c.state === 'connected' && !c.error ? c : { state: 'connected', error: null, attempt: 0 }))
-        },
-        onStatus: (status) => {
-          if (status === 'terminated') {
-            setConnection({ state: 'terminated', error: 'The host closed this room.', attempt: 0 })
-            return
-          }
-          if (status === 'SUBSCRIBED') {
-            setConnection({ state: 'connected', error: null, attempt: 0 })
-            return
-          }
-          if (['TIMED_OUT', 'CHANNEL_ERROR', 'CLOSED'].includes(status)) {
-            setConnection((c) => ({ state: 'reconnecting', error: null, attempt: (c.attempt || 0) + 1 }))
-          }
-        },
-      })
-    },
-    [],
-  )
+          return
+        }
+        if (status === 'SUBSCRIBED') {
+          setConnection({ state: 'connected', error: null, attempt: 0 })
+          return
+        }
+        if (['TIMED_OUT', 'CHANNEL_ERROR', 'CLOSED'].includes(status)) {
+          setConnection((c) => ({
+            state: 'reconnecting',
+            error: null,
+            attempt: (c.attempt || 0) + 1,
+          }))
+        }
+      },
+    })
+  }, [])
 
   /* Attach / detach the subscription whenever the room code changes. */
   useEffect(() => {
-    if (!session.code || !isConfigured()) return () => {}
+    if (!session.code || !seated || !isConfigured()) return () => {}
     subscribe(session.code)
     return () => {
       unsubscribeRef.current?.()
       unsubscribeRef.current = null
     }
-  }, [session.code, subscribe])
+  }, [session.code, seated, subscribe])
 
   /* On mount with a stored session (page refresh / deep link), pull the room
      once so the UI has data before realtime events start arriving. */
   const resumed = useRef(false)
   useEffect(() => {
-    if (resumed.current || !session.code || !isConfigured()) return
+    if (resumed.current || !session.code || !seated || !isConfigured()) return
     resumed.current = true
     refreshRoom(session.code)
       .then((next) => {
         if (!next) return
         const stillIn = next.players.some((p) => p.id === session.playerId)
         if (!stillIn) {
-          setConnection({ state: 'error', error: 'You are no longer in that room. It may have been closed.', attempt: 0 })
+          setConnection({
+            state: 'error',
+            error: 'You are no longer in that room. It may have been closed.',
+            attempt: 0,
+          })
           clearSession()
         }
       })
       .catch((error) => {
-        setConnection({ state: 'error', error: friendlyRoomError(error), attempt: 0 })
+        setConnection({
+          state: 'error',
+          error: friendlyRoomError(error),
+          attempt: 0,
+        })
       })
-  }, [session.code, session.playerId, refreshRoom, clearSession])
+  }, [session.code, session.playerId, seated, refreshRoom, clearSession])
 
   /* Retry loop with backoff while reconnecting. */
   useEffect(() => {
@@ -342,9 +466,17 @@ export function useOnlineRoom(bank) {
         setConnection((c) => (c.state === 'reconnecting' ? { state: 'connected', error: null, attempt: 0 } : c))
       } catch (error) {
         if (error?.code === 'NOT_FOUND' || error?.code === 'EXPIRED' || error?.code === 'TERMINATED') {
-          setConnection({ state: 'error', error: friendlyRoomError(error), attempt: 0 })
+          setConnection({
+            state: 'error',
+            error: friendlyRoomError(error),
+            attempt: 0,
+          })
         } else {
-          setConnection((c) => ({ state: 'reconnecting', error: null, attempt: (c.attempt || 0) + 1 }))
+          setConnection((c) => ({
+            state: 'reconnecting',
+            error: null,
+            attempt: (c.attempt || 0) + 1,
+          }))
         }
       }
     }, delay)
@@ -374,7 +506,7 @@ export function useOnlineRoom(bank) {
 
   /* Heartbeat so the lobby can flag dropped players. */
   useEffect(() => {
-    if (!session.code || !session.playerId || !isConfigured()) return () => {}
+    if (!session.code || !session.playerId || !seated || !isConfigured()) return () => {}
     const beat = () => {
       if (document.visibilityState !== 'visible') return
       pingPlayer({ code: session.code, playerId: session.playerId }).catch(() => {})
@@ -382,7 +514,45 @@ export function useOnlineRoom(bank) {
     beat()
     const id = setInterval(beat, HEARTBEAT_MS)
     return () => clearInterval(id)
-  }, [session.code, session.playerId])
+  }, [session.code, session.playerId, seated])
+
+  /*
+   * THE HOST RESCUE.
+   * A room is driven by its host, so a host whose phone died used to stop the
+   * table dead ("Waiting for the host…", forever). Every room tick checks who
+   * should own the room when the host has gone quiet (vanishSuccessor — only
+   * an online, longer-standing player) and that player claims it. The claim
+   * runs through the service, which refuses it if the host is actually still
+   * answering heartbeats, so two devices can never both win.
+   */
+  const lastClaimAt = useRef(0)
+  useEffect(() => {
+    if (!seated || !room || !session.playerId) return
+    const successor = vanishSuccessor(room)
+    if (!successor || successor !== session.playerId) return
+    if (Date.now() - lastClaimAt.current < 20000) return
+    lastClaimAt.current = Date.now()
+    apiClaimHost({ code: room.code, playerId: session.playerId })
+      .then(({ room: updated }) => {
+        if (!updated) return
+        applyRoom(updated)
+        if (updated.hostId === session.playerId) {
+          setNotice({
+            id: Date.now(),
+            tone: 'success',
+            text: 'The host went quiet — you are driving this room now.',
+          })
+        }
+      })
+      .catch(() => {})
+  }, [seated, room, session.playerId, applyRoom])
+
+  /* A notice reads once and then steps out of the way. */
+  useEffect(() => {
+    if (!notice) return () => {}
+    const id = setTimeout(() => setNotice(null), 7000)
+    return () => clearTimeout(id)
+  }, [notice])
 
   /* Fetch my own secret whenever the room (or my identity) changes. */
   const needsSecret = Boolean(session.code && session.playerId && room?.game)
@@ -429,7 +599,10 @@ export function useOnlineRoom(bank) {
     if (!code || !playerId || !room?.game) return
     const seen = Array.from(new Set([...(room.game.revealedBy || []), playerId]))
     try {
-      const { room: updated } = await patchRoom({ code, patch: { game: { ...room.game, revealedBy: seen } } })
+      const { room: updated } = await patchRoom({
+        code,
+        patch: { game: { ...room.game, revealedBy: seen } },
+      })
       if (updated) applyRoom(updated)
     } catch (error) {
       setConnection((c) => ({ ...c, error: friendlyRoomError(error) }))
@@ -442,7 +615,12 @@ export function useOnlineRoom(bank) {
     const duration = room.config.turnSeconds
     await patchRoom({
       code,
-      patch: { game: { ...room.game, timer: { running: true, duration, startedAt: Date.now() } } },
+      patch: {
+        game: {
+          ...room.game,
+          timer: { running: true, duration, startedAt: Date.now() },
+        },
+      },
     }).then(({ room: updated }) => updated && applyRoom(updated))
   }, [room, applyRoom])
 
@@ -451,7 +629,16 @@ export function useOnlineRoom(bank) {
     if (!code || !room?.game) return
     await patchRoom({
       code,
-      patch: { game: { ...room.game, timer: { running: false, duration: room.config.turnSeconds, startedAt: null } } },
+      patch: {
+        game: {
+          ...room.game,
+          timer: {
+            running: false,
+            duration: room.config.turnSeconds,
+            startedAt: null,
+          },
+        },
+      },
     }).then(({ room: updated }) => updated && applyRoom(updated))
   }, [room, applyRoom])
 
@@ -468,7 +655,11 @@ export function useOnlineRoom(bank) {
           game: {
             ...room.game,
             phase: ONLINE_PHASES.VOTING,
-            timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+            timer: {
+              running: false,
+              duration: room.config.turnSeconds,
+              startedAt: null,
+            },
           },
         },
       }).then(({ room: updated }) => updated && applyRoom(updated))
@@ -481,7 +672,11 @@ export function useOnlineRoom(bank) {
           ...room.game,
           clueIndex: nextIndex,
           turnPlayerId: order[nextIndex],
-          timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+          timer: {
+            running: false,
+            duration: room.config.turnSeconds,
+            startedAt: null,
+          },
         },
       },
     }).then(({ room: updated }) => updated && applyRoom(updated))
@@ -497,10 +692,18 @@ export function useOnlineRoom(bank) {
       // Optimistic local mirror — keeps the UI instant while the write flies.
       applyRoom({
         ...room,
-        game: { ...room.game, votes: { ...(room.game.votes || {}), [playerId]: targetId } },
+        game: {
+          ...room.game,
+          votes: { ...(room.game.votes || {}), [playerId]: targetId },
+        },
       })
       try {
-        const { room: updated } = await apiSubmitVote({ code, playerId, targetId, round: room.game.round })
+        const { room: updated } = await apiSubmitVote({
+          code,
+          playerId,
+          targetId,
+          round: room.game.round,
+        })
         if (updated) applyRoom(updated)
         return { ok: true }
       } catch (error) {
@@ -541,9 +744,17 @@ export function useOnlineRoom(bank) {
     const { code, playerId } = sessionRef.current
     if (!code || !room) return { ok: false, error: 'Not connected.' }
     const lobby = room.players
-    if (lobby.length < 3) return { ok: false, error: 'Online rooms need at least 3 players. You have ' + lobby.length + '.' }
+    if (lobby.length < 3)
+      return {
+        ok: false,
+        error: 'Online rooms need at least 3 players. You have ' + lobby.length + '.',
+      }
     const notReady = lobby.filter((p) => !p.isHost && !p.ready)
-    if (notReady.length) return { ok: false, error: `${notReady.map((p) => p.name).join(', ')} ${notReady.length > 1 ? 'are' : 'is'} not ready yet.` }
+    if (notReady.length)
+      return {
+        ok: false,
+        error: `${notReady.map((p) => p.name).join(', ')} ${notReady.length > 1 ? 'are' : 'is'} not ready yet.`,
+      }
 
     setBusy('starting')
     try {
@@ -554,7 +765,12 @@ export function useOnlineRoom(bank) {
             difficulty: room.config.difficulty,
             exclude: recent,
           })
-        : { word: 'Mystery', categoryName: 'Random', difficulty: 'medium', decoy: null }
+        : {
+            word: 'Mystery',
+            categoryName: 'Random',
+            difficulty: 'medium',
+            decoy: null,
+          }
 
       /* Round one is the ordinary deal in both modes — see assignOpeningRoles. */
       const { roles } = assignOpeningRoles(room.config, lobby.length)
@@ -590,14 +806,21 @@ export function useOnlineRoom(bank) {
         clueOrder: buildClueOrder(aliveIds),
         clueIndex: 0,
         turnPlayerId: null,
-        timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+        timer: {
+          running: false,
+          duration: room.config.turnSeconds,
+          startedAt: null,
+        },
         votes: {},
         submitted: [],
         lastResult: null,
         winner: null,
         history: [],
         eliminated: [],
-        deck: { categoryLabel: picked.categoryName, difficulty: picked.difficulty },
+        deck: {
+          categoryLabel: picked.categoryName,
+          difficulty: picked.difficulty,
+        },
         /* Round one is an ordinary round; the first chaos event lands 3-5 rounds in. */
         chaosRound: false,
         nextChaosRound: isChaosMode(room.config) ? scheduleNextChaosRound(1) : null,
@@ -610,7 +833,12 @@ export function useOnlineRoom(bank) {
         roomPatch: { game, status: ROOM_STATUS.PLAYING },
         status: ROOM_STATUS.PLAYING,
       })
-      const nextSession = { ...sessionRef.current, roles: roleMap, deck: game.deck, isHost: true }
+      const nextSession = {
+        ...sessionRef.current,
+        roles: roleMap,
+        deck: game.deck,
+        isHost: true,
+      }
       setSession(nextSession)
       writeJSON(STORAGE_KEYS.session, nextSession)
       if (updated) applyRoom(updated)
@@ -625,8 +853,20 @@ export function useOnlineRoom(bank) {
 
   /** Host: recompute the round outcome and publish it. */
   const publishResult = useCallback(async () => {
-    const { code, roles } = sessionRef.current
+    const { code } = sessionRef.current
     if (!code || !room?.game) return
+    let { roles } = sessionRef.current
+    /* A promoted driver (the host vanished mid-round) holds no role map; the
+       per-player secret entries do. Fetch once, cache in the session. */
+    if (!roles || !Object.keys(roles).length) {
+      const fetched = await collectRolesFromSecrets(code, room).catch(() => null)
+      if (fetched) {
+        roles = fetched
+        const nextSession = { ...sessionRef.current, roles }
+        setSession(nextSession)
+        writeJSON(STORAGE_KEYS.session, nextSession)
+      }
+    }
     const result = computeResult(room, roles || {})
     const gameOver = Boolean(result.winner)
 
@@ -640,23 +880,28 @@ export function useOnlineRoom(bank) {
         game: {
           ...room.game,
           phase: ONLINE_PHASES.GUESS,
-          pendingGuess: { playerId: result.eliminatedId, name: result.eliminatedName },
+          pendingGuess: {
+            playerId: result.eliminatedId,
+            name: result.eliminatedName,
+          },
           guess: null,
           /* No role travels in the room document — see publicResult(). */
           lastResult: { ...publicResult(result), winner: null },
           winner: null,
           eliminated: [...(room.game.eliminated || []), result.eliminatedId],
           history: [...(room.game.history || []), { ...publicResult(result), winner: null }],
-          timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+          timer: {
+            running: false,
+            duration: room.config.turnSeconds,
+            startedAt: null,
+          },
         },
       }
       const { room: updated } = await patchRoom({ code, patch })
       if (updated) applyRoom(updated)
       return
     }
-    const revealedRoles = gameOver
-      ? Object.fromEntries(room.players.map((p) => [p.id, roles?.[p.id] || ROLES.CREW]))
-      : null
+    const revealedRoles = gameOver ? Object.fromEntries(room.players.map((p) => [p.id, roles?.[p.id] || ROLES.CREW])) : null
     const patch = {
       game: {
         ...room.game,
@@ -666,11 +911,19 @@ export function useOnlineRoom(bank) {
         revealedRoles,
         history: [...(room.game.history || []), publicResult(result)],
         eliminated: result.eliminatedId ? [...(room.game.eliminated || []), result.eliminatedId] : room.game.eliminated || [],
-        timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+        timer: {
+          running: false,
+          duration: room.config.turnSeconds,
+          startedAt: null,
+        },
       },
       status: result.winner ? ROOM_STATUS.ENDED : room.status,
     }
-    const { room: updated } = await patchRoom({ code, patch, status: patch.status })
+    const { room: updated } = await patchRoom({
+      code,
+      patch,
+      status: patch.status,
+    })
     if (updated) applyRoom(updated)
   }, [room, applyRoom])
 
@@ -685,7 +938,12 @@ export function useOnlineRoom(bank) {
 
       const { room: updated } = await patchRoom({
         code,
-        patch: { game: { ...room.game, guess: { playerId, text: value, at: Date.now() } } },
+        patch: {
+          game: {
+            ...room.game,
+            guess: { playerId, text: value, at: Date.now() },
+          },
+        },
       })
       if (updated) applyRoom(updated)
       return { ok: true }
@@ -708,25 +966,51 @@ export function useOnlineRoom(bank) {
     const meta = await fetchSecret({ code, playerId: SECRET_META_KEY })
       .then(({ secret: payload }) => payload || null)
       .catch(() => null)
-    const judged = resolveGuess({ guess: pending.text, word: meta?.word || null })
+    const judged = resolveGuess({
+      guess: pending.text,
+      word: meta?.word || null,
+    })
 
     const roles_ = roles || {}
-    const gameOver = judged.correct
+    /*
+     * A wrong (or waived) guess does not just remove the accused — the roster
+     * decides the game right there. If this was the last imposter, the crew has
+     * won and the room must say so instead of dealing a wordless round.
+     */
+    const verdict = judged.correct
+      ? {
+          team: 'imposter',
+          reason: 'The caught imposter named the secret word — the imposters take the game.',
+        }
+      : settleWinner(room, roles_)
+    const gameOver = Boolean(verdict?.team)
     const patch = {
       game: {
         ...room.game,
         phase: ONLINE_PHASES.RESULT,
         pendingGuess: null,
-        winner: judged.correct ? 'imposter' : null,
-        lastResult: { ...(room.game.lastResult || {}), winner: judged.correct ? 'imposter' : null, guess: judged.correct ? 'correct' : 'wrong', guessText: pending.text },
-        revealedRoles: gameOver
-          ? Object.fromEntries(room.players.map((p) => [p.id, roles_[p.id] || ROLES.CREW]))
-          : room.game.revealedRoles || null,
-        timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+        winner: verdict?.team || null,
+        lastResult: {
+          ...(room.game.lastResult || {}),
+          winner: verdict?.team || null,
+          reason: verdict?.reason || room.game.lastResult?.reason || '',
+          guess: judged.correct ? 'correct' : 'wrong',
+          guessText: pending.text,
+        },
+        revealedRoles: gameOver ? Object.fromEntries(room.players.map((p) => [p.id, roles_[p.id] || ROLES.CREW])) : room.game.revealedRoles || null,
+        timer: {
+          running: false,
+          duration: room.config.turnSeconds,
+          startedAt: null,
+        },
       },
       status: gameOver ? ROOM_STATUS.ENDED : room.status,
     }
-    const { room: updated } = await patchRoom({ code, patch, status: patch.status })
+    const { room: updated } = await patchRoom({
+      code,
+      patch,
+      status: patch.status,
+    })
     if (updated) applyRoom(updated)
   }, [room, applyRoom])
 
@@ -755,7 +1039,11 @@ export function useOnlineRoom(bank) {
           clueOrder: order,
           clueIndex: 0,
           turnPlayerId: order[0],
-          timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+          timer: {
+            running: false,
+            duration: room.config.turnSeconds,
+            startedAt: null,
+          },
         },
       },
     })
@@ -800,7 +1088,11 @@ export function useOnlineRoom(bank) {
       chaosRound: chaosNow,
       nextChaosRound: chaosNow ? scheduleNextChaosRound(round) : room.game.nextChaosRound,
       noImposterRound: false,
-      timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+      timer: {
+        running: false,
+        duration: room.config.turnSeconds,
+        startedAt: null,
+      },
     }
 
     /* A chaos round re-rolls roles for every player still in play — the previous
@@ -816,9 +1108,7 @@ export function useOnlineRoom(bank) {
       // Without the round's word a rewritten deal would leave the crew
       // wordless, so keep the existing assignment rather than break the round.
       if (word) {
-        const { roles } = chaosNow
-          ? assignRolesFor(room.config, aliveIds.length)
-          : assignRolesFor({ ...room.config, mode: 'normal' }, aliveIds.length)
+        const { roles } = chaosNow ? assignRolesFor(room.config, aliveIds.length) : assignRolesFor({ ...room.config, mode: 'normal' }, aliveIds.length)
         /* A chaos round can legitimately deal nobody the card; the room says so
            and the next ordinary round puts the configured count back. */
         const dealtNobody = roles.every((role) => role !== ROLES.IMPOSTER)
@@ -840,6 +1130,15 @@ export function useOnlineRoom(bank) {
           secrets: nextSecrets,
           roomPatch: { game: { ...advance, noImposterRound: dealtNobody } },
         })
+        /* The deal changed — the driver's local role map must change with it,
+           or the next tally would judge the round on last round's roles. */
+        const freshRoles = { ...(sessionRef.current.roles || {}) }
+        aliveIds.forEach((id, index) => {
+          freshRoles[id] = roles[index]
+        })
+        const nextSession = { ...sessionRef.current, roles: freshRoles }
+        setSession(nextSession)
+        writeJSON(STORAGE_KEYS.session, nextSession)
         if (updated) applyRoom(updated)
         return
       }
@@ -863,7 +1162,11 @@ export function useOnlineRoom(bank) {
          can never quietly hand back the word everyone just played. */
       const recent = await recallRecentWords()
       const picked = bank?.pick
-        ? bank.pick({ categoryIds: room.config.categoryIds, difficulty: room.config.difficulty, exclude: recent })
+        ? bank.pick({
+            categoryIds: room.config.categoryIds,
+            difficulty: room.config.difficulty,
+            exclude: recent,
+          })
         : { word: 'Mystery' }
       const { roles } = assignRolesFor(room.config, room.players.length)
       const roleMap = {}
@@ -895,20 +1198,32 @@ export function useOnlineRoom(bank) {
         clueOrder: buildClueOrder(room.players.map((p) => p.id)),
         clueIndex: 0,
         turnPlayerId: null,
-        timer: { running: false, duration: room.config.turnSeconds, startedAt: null },
+        timer: {
+          running: false,
+          duration: room.config.turnSeconds,
+          startedAt: null,
+        },
         votes: {},
         submitted: [],
         lastResult: null,
         winner: null,
         history: [],
         eliminated: [],
-        deck: { categoryLabel: picked.categoryName, difficulty: picked.difficulty },
+        deck: {
+          categoryLabel: picked.categoryName,
+          difficulty: picked.difficulty,
+        },
         /* A fresh game means a fresh chaos clock, and an ordinary opening round. */
         chaosRound: false,
         nextChaosRound: isChaosMode(room.config) ? scheduleNextChaosRound(1) : null,
         noImposterRound: false,
       }
-      const { room: updated } = await writeSecrets({ code, secrets, roomPatch: { game, status: ROOM_STATUS.PLAYING }, status: ROOM_STATUS.PLAYING })
+      const { room: updated } = await writeSecrets({
+        code,
+        secrets,
+        roomPatch: { game, status: ROOM_STATUS.PLAYING },
+        status: ROOM_STATUS.PLAYING,
+      })
       const nextSession = { ...sessionRef.current, roles: roleMap }
       setSession(nextSession)
       writeJSON(STORAGE_KEYS.session, nextSession)
@@ -921,6 +1236,105 @@ export function useOnlineRoom(bank) {
       setBusy(null)
     }
   }, [room, bank, applyRoom, recallRecentWords])
+
+  /* ------------------------------------------------------------------ */
+  /* No-show escape hatches — host (or the driver the room fell to) only  */
+  /* ------------------------------------------------------------------ */
+
+  /** Open the round even though somebody never flipped their card. */
+  const forceOpenRound = useCallback(async () => {
+    const { code, playerId } = sessionRef.current
+    if (!code || !room?.game) return
+    if (!isHostDriver(room, playerId)) return
+    if (room.game.phase !== ONLINE_PHASES.REVEAL) return
+    const { room: updated } = await patchRoom({
+      code,
+      patch: { game: { ...room.game, phase: ONLINE_PHASES.BRIEFING } },
+    })
+    if (updated) applyRoom(updated)
+    setNotice({
+      id: Date.now(),
+      tone: 'success',
+      text: 'The round is open — the phones that never reported in were skipped.',
+    })
+  }, [room, applyRoom])
+
+  /** Close the ballot with whatever votes landed; missing ones are not counted. */
+  const forceTally = useCallback(async () => {
+    const { code, playerId } = sessionRef.current
+    if (!code || !room?.game) return
+    if (!isHostDriver(room, playerId)) return
+    if (room.game.phase !== ONLINE_PHASES.VOTING) return
+    const key = `vote:${room.game.round}`
+    if (!transitionLock.current.has(key)) {
+      transitionLock.current.add(key)
+      setTimeout(() => transitionLock.current.delete(key), 20000)
+    }
+    await publishResult()
+    setNotice({
+      id: Date.now(),
+      tone: 'success',
+      text: 'Voting closed with the ballots in hand.',
+    })
+  }, [room, publishResult])
+
+  /** The accused is gone: wave their one guess through (counts as a miss). */
+  const waiveGuess = useCallback(async () => {
+    const { code, playerId } = sessionRef.current
+    if (!code || !room?.game) return
+    if (!isHostDriver(room, playerId)) return
+    const pending = room.game.pendingGuess
+    if (!pending || room.game.guess) return
+    const { room: updated } = await patchRoom({
+      code,
+      patch: {
+        game: {
+          ...room.game,
+          guess: {
+            playerId: pending.playerId,
+            text: '(no guess — phone offline)',
+            at: Date.now(),
+            waived: true,
+          },
+        },
+      },
+    })
+    if (updated) applyRoom(updated)
+  }, [room, applyRoom])
+
+  /** Remove a player who is not coming back; the round re-derives around them. */
+  const removePlayer = useCallback(
+    async (targetId) => {
+      const { code, playerId } = sessionRef.current
+      if (!code || !room) return { ok: false, error: 'Not connected.' }
+      if (!isHostDriver(room, playerId)) return { ok: false, error: 'Only the host can remove a player.' }
+      if (targetId === playerId)
+        return {
+          ok: false,
+          error: 'You cannot remove yourself — use Leave room.',
+        }
+      const name = room.players.find((p) => p.id === targetId)?.name || 'Player'
+      try {
+        const { room: updated, removed } = await apiRemovePlayer({
+          code,
+          playerId: targetId,
+        })
+        if (removed || !updated) clearSession()
+        else applyRoom(updated)
+        setNotice({
+          id: Date.now(),
+          tone: 'success',
+          text: `${name} was removed — the table can carry on.`,
+        })
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: friendlyRoomError(error) }
+      }
+    },
+    [room, applyRoom, clearSession],
+  )
+
+  const dismissNotice = useCallback(() => setNotice(null), [])
 
   const closeRoom = useCallback(async () => {
     const { code } = sessionRef.current
@@ -942,7 +1356,10 @@ export function useOnlineRoom(bank) {
       if (!code || !room) return { ok: false, error: 'Not connected.' }
       if (!isHostDriver(room, playerId)) return { ok: false, error: 'Only the host can change the setup.' }
       const nextConfig = { ...room.config, ...patch }
-      const { room: updated } = await patchRoom({ code, patch: { config: nextConfig } })
+      const { room: updated } = await patchRoom({
+        code,
+        patch: { config: nextConfig },
+      })
       if (updated) applyRoom(updated)
       return { ok: true }
     },
@@ -1015,7 +1432,16 @@ export function useOnlineRoom(bank) {
     if (turn?.id === meId || isHostDriver(room, meId)) {
       patchRoom({
         code: room.code,
-        patch: { game: { ...room.game, timer: { running: false, duration: room.config.turnSeconds, startedAt: null } } },
+        patch: {
+          game: {
+            ...room.game,
+            timer: {
+              running: false,
+              duration: room.config.turnSeconds,
+              startedAt: null,
+            },
+          },
+        },
       })
         .then(({ room: updated }) => updated && applyRoom(updated))
         .catch(() => stopGuard.current.delete(key))
@@ -1040,12 +1466,18 @@ export function useOnlineRoom(bank) {
     }
   }, [room, secret, session.playerId, session.roles])
 
-  const isInRoom = Boolean(room && session.code)
+  /* The seat rule for the screens above: this tab is "in" a room only when it
+     deliberately took the seat AND the room came back. A stale session in
+     storage can never pull a new visitor into somebody's game by itself. */
+  const isInRoom = Boolean(room && session.code && seated)
 
   return {
     configured: backend.configured,
     backend,
     session,
+    seated,
+    notice,
+    dismissNotice,
     room,
     secret,
     view,
@@ -1057,6 +1489,10 @@ export function useOnlineRoom(bank) {
       createRoom,
       joinRoom,
       leave,
+      forceOpenRound,
+      forceTally,
+      waiveGuess,
+      removePlayer,
       setReady,
       markCardSeen,
       startTimer,

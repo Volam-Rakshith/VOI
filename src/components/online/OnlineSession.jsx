@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { useOnlineRoom } from '../../hooks/useOnlineRoom.js'
 import { Modal } from '../ui/Modal.jsx'
+import { InlineNotice } from '../ui/Feedback.jsx'
 import { BackendPanel } from './BackendPanel.jsx'
 import { useWordBank } from '../../context/WordBankContext.jsx'
 import { useToast } from '../../context/ToastContext.jsx'
@@ -44,14 +45,28 @@ export function OnlineSession({ renderSetup, onExit }) {
     />
   )
 
+  /*
+   * Room-level announcements that belong to nobody's chat: "you are the new
+   * host", "X was removed", "the host removed you". Floating, dismissible, and
+   * it never blocks a tap on the screens below.
+   */
+  const sessionNotice = online.notice ? (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[95] flex justify-center px-4">
+      <div className="pointer-events-auto w-full max-w-md">
+        <InlineNotice tone={online.notice.tone || 'info'} className="border-cyan-300/50 bg-black/85 text-[12.5px] shadow-[0_10px_40px_rgba(0,0,0,.6)]">
+          <div className="flex items-start justify-between gap-3">
+            <span>{online.notice.text}</span>
+            <button type="button" aria-label="Dismiss notice" onClick={online.dismissNotice} className="shrink-0 font-display text-[10px] uppercase tracking-[.2em] text-white/55 hover:text-white">
+              ✕
+            </button>
+          </div>
+        </InlineNotice>
+      </div>
+    </div>
+  ) : null
+
   const configureModal = (
-    <Modal
-      open={configureOpen}
-      onClose={() => setConfigureOpen(false)}
-      title="Connect a backend"
-      subtitle="Online rooms run on your own free Supabase project. Connect once, then publish the one-file config — every player then joins with nothing to paste."
-      size="lg"
-    >
+    <Modal open={configureOpen} onClose={() => setConfigureOpen(false)} title="Connect a backend" subtitle="Online rooms run on your own free Supabase project. Connect once, then publish the one-file config — every player then joins with nothing to paste." size="lg">
       <BackendPanel
         onChanged={async (payload) => {
           const result = await online.actions.configureBackend(payload)
@@ -68,6 +83,7 @@ export function OnlineSession({ renderSetup, onExit }) {
     return (
       <>
         {refreshWarning}
+        {sessionNotice}
         {renderSetup({
           configured: online.configured,
           backend: online.backend,
@@ -93,11 +109,8 @@ export function OnlineSession({ renderSetup, onExit }) {
   return (
     <>
       {refreshWarning}
-      {inLobby ? (
-        <LobbyView online={online} onExit={onExit} />
-      ) : (
-        <OnlineGamePhases online={online} onExit={onExit} />
-      )}
+      {inLobby ? <LobbyView online={online} onExit={onExit} /> : <OnlineGamePhases online={online} onExit={onExit} />}
+      {sessionNotice}
     </>
   )
 }

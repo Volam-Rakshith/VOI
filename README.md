@@ -97,10 +97,10 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build` | Production build → `dist/` (+ `404.html`, `.nojekyll`) |
 | `npm run preview` | Serves the built `dist/` on `0.0.0.0:4173` |
 | `npm run test` | Everything below, in one run |
-| `npm run test:engine` | 138 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
+| `npm run test:engine` | 150 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery) |
 | `npm run doctor` | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan |
 | `npm run test:ui` | 136-check UI smoke test
-| `npm run test:live` | **22 live multiplayer join cycles** against your real Supabase project — creates rooms, joins 3–8 players, verifies rejoin, bad codes and closing, checks realtime delivery, then closes every room it made. Requires network access and your published config |: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
+| `npm run test:live` | **22 live multiplayer join cycles + 3 no-show rescue drills** against your real Supabase project — creates rooms, joins 3–8 players, verifies rejoin, bad codes and closing, checks realtime delivery, proves a kick re-opens a blocked gate and that a quiet host’s room falls to an online player, then closes every room it made. Requires network access and your published config |: mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy` | Builds and pushes `dist/` to a `gh-pages` branch |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest) |
 
@@ -232,6 +232,35 @@ A room is configured **when it is created**, and every player sees the same setu
 
 The host can change any of it in the lobby before dealing, and the roster re-checks the imposter count every
 time somebody joins or leaves.
+
+### Nobody showing up? The table frees itself
+
+A party stalls the second one phone goes dark, so the room carries four escape hatches — **host (or the driver
+the room fell to) only**, nobody else ever sees these buttons:
+
+| Situation | What the table does |
+| --- | --- |
+| A player never flips their secret card | The host gets **Open the round without them** — the seen-gate is waived for that round |
+| A player’s clue turn arrives on a dead phone | The host gets **Skip NAME's turn — their phone is offline**, right on the clues screen |
+| A ballot never lands | The host gets **Close voting and tally the N ballots in** — missing votes simply do not count |
+| The voted-out player vanishes before their one guess | The host gets **Skip their guess — count it as a miss**, and the roster is settled on the spot (last imposter gone = crew wins immediately) |
+
+Plus two room-wide rules:
+
+* **Kick** — in the lobby and mid-game the host can **Remove** a player whose phone is gone for good. Their
+  seat, ballot and clue turn are cleared and every count re-derives around them; the table does not have to
+  finish the round waiting. A host cannot remove themselves (the button refuses), and removing the accused
+  player mid-guess resolves that guess as a miss.
+* **The host fell over** — if the host's phone goes quiet for about a minute, the longest-standing online
+  player automatically becomes the driver: they get the host buttons, a notice says why, and a promoted driver
+  reads each seat's own secret to rebuild the role map, so tallies stay correct. If the host leaves cleanly,
+  the same hand-over happens instantly at the moment they go.
+* **Every screen has a way out** — card, briefing, clues, voting and the guess screen all end with a
+  **leave room / close room** control; nobody is trapped by the back-arrow alone.
+
+And a seat is now per-tab: opening the app fresh never drags you into somebody's room. A stored session is only
+offered back as a **"rejoin my last room"** button you press yourself (or resumed automatically after a refresh
+in the same tab, which is the one case that *should* walk you back to your seat).
 
 ### The room lifecycle, and why it never fills up
 

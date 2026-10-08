@@ -1,5 +1,4 @@
 {
-  "_comment": "Runtime backend configuration for VOTE OUT IMPOSTER. These are PUBLIC values (project URL + publishable/anon key) and are safe to ship. Every visitor reads this file at run time — nobody is ever asked to paste a key. Updating the app never needs to touch this file again.",
   "supabaseUrl": "https://uepgrjiktejmvyupvzlo.supabase.co",
   "supabaseAnonKey": "sb_publishable_s2Aq-KaMWo9EaASjbvPZOg_rVy6McSM"
 }

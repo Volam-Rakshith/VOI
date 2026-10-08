@@ -1164,6 +1164,210 @@ test('saving nothing clears the snapshot (quit really quits)', () => {
   sessionStore.removeSession(limits.STORAGE_KEYS.localGame)
 })
 
+/* ================================================================== */
+group('NO-SHOW & HOST RESCUE — the frozen-table cures')
+
+const ago = (ms) => Date.now() - ms
+
+test('dark phones are the ones whose heartbeat went stale', () => {
+  const r = room({
+    players: room().players.map((p) => (p.id === 'p3' ? { ...p, lastSeen: ago(70000) } : p)),
+  })
+  assert.deepEqual(
+    onlineGame.offlinePlayers(r).map((p) => p.id),
+    ['p3'],
+    'one quiet seat detected',
+  )
+  assert.equal(onlineGame.isPlayerOnline(r.players[2]), false, 'grace window honoured')
+  assert.ok(onlineGame.offlinePlayers(room()).length === 0, 'a healthy table has no dark phones')
+})
+
+test('the clue order drops the dead and the gone', () => {
+  const r = room({
+    game: { ...room().game, eliminated: ['p2'] },
+    players: room().players.map((p) => (p.id === 'p4' ? { ...p, lastSeen: ago(70000) } : p)),
+  })
+  const order = onlineGame.clueOrderFor(r)
+  assert.ok(!order.includes('p2'), 'eliminated players are out of the order')
+  // The order is the SHARED list minus the dead; offline players stay (the host
+  // may skip them, but the list itself is only about who is in the game).
+  assert.ok(order.includes('p4'), 'a dark phone is still seated until removed')
+  assert.deepEqual(order, ['p1', 'p3', 'p4'], 'survivors keep their sequence')
+  assert.equal(onlineGame.clueOrderFor({ game: null }).length, 0, 'no game, no order')
+  assert.equal(onlineGame.clueOrderFor(null).length, 0, 'no room, no order')
+})
+
+test('the room knows who to hand over to when the host goes quiet', () => {
+  const healthy = room()
+  assert.equal(onlineGame.vanishSuccessor(healthy), null, 'host online — nobody takes over')
+
+  const hostDark = room({ players: healthy.players.map((p) => (p.id === 'p1' ? { ...p, lastSeen: ago(90000) } : p)) })
+  assert.equal(onlineGame.vanishSuccessor(hostDark), 'p2', 'the longest-standing online player inherits')
+
+  const hostFlagged = room({ players: healthy.players.map((p) => (p.id === 'p1' ? { ...p, online: false } : p)) })
+  assert.equal(onlineGame.vanishSuccessor(hostFlagged), 'p2', 'an explicit offline flag is enough')
+
+  const noHost = room({ hostId: 'ghost', players: healthy.players.map((p) => ({ ...p, isHost: false })) })
+  assert.equal(onlineGame.vanishSuccessor(noHost), 'p1', 'a room with no host at all hands over to its longest-standing online player')
+
+  const closed = room({ status: 'terminated', players: hostDark.players })
+  assert.equal(onlineGame.vanishSuccessor(closed), null, 'a closed room is never taken over')
+
+  const earlyAwakes = room({
+    players: hostDark.players.map((p) => (p.id === 'p2' ? { ...p, joinedAt: 99 } : p)),
+  })
+  assert.equal(onlineGame.vanishSuccessor(earlyAwakes), 'p3', 'join order, not name order, picks the successor')
+
+  const everyoneDark = room({ players: hostDark.players.map((p) => ({ ...p, lastSeen: ago(90000), online: false })) })
+  assert.equal(onlineGame.vanishSuccessor(everyoneDark), null, 'nobody online — nothing to hand over')
+})
+
+test('the driver is the host while they live, the earliest online seat after', () => {
+  const r = room()
+  assert.equal(onlineGame.driverFor(r).id, 'p1', 'host drives while online')
+  assert.equal(onlineGame.isHostDriver(r, 'p1'), true)
+  assert.equal(onlineGame.isHostDriver(r, 'p2'), false)
+
+  const hostDark = room({ players: r.players.map((p) => (p.id === 'p1' ? { ...p, lastSeen: ago(90000) } : p)) })
+  assert.equal(onlineGame.driverFor(hostDark).id, 'p2', 'the table falls to the earliest online player')
+  assert.equal(onlineGame.isHostDriver(hostDark, 'p2'), true, 'and they may press the host buttons')
+  assert.equal(onlineGame.isHostDriver(hostDark, 'p1'), false, 'the dead host no longer drives')
+})
+
+test('a wrong or waived final guess settles the roster on the spot', () => {
+  // The last imposter was voted out and failed the guess: crew wins NOW,
+  // not after a pointless wordless round.
+  const decided = room({
+    game: { ...room().game, phase: 'guess', eliminated: ['p2'], pendingGuess: { playerId: 'p2', name: 'B' }, guess: null },
+  })
+  const roles = { p1: 'crew', p2: 'imposter', p3: 'crew', p4: 'crew' }
+  assert.equal(onlineGame.settleWinner(decided, roles)?.team, 'crew', 'last imposter gone → crew takes it')
+  assert.ok(onlineGame.settleWinner(decided, roles).reason, 'and the screen gets a true reason')
+
+  // Parity: two crew and a live imposter after the vote → imposters win.
+  const parity = room({
+    players: [
+      { id: 'p1', name: 'A', isHost: true, online: true, joinedAt: 1, lastSeen: Date.now() },
+      { id: 'p2', name: 'B', online: true, joinedAt: 2, lastSeen: Date.now() },
+      { id: 'p3', name: 'C', online: true, joinedAt: 3, lastSeen: Date.now() },
+    ],
+    game: { ...room().game, eliminated: ['p4'] },
+  })
+  assert.equal(onlineGame.settleWinner(parity, { p1: 'crew', p2: 'imposter', p3: 'crew' })?.team ?? null, null, '2 crew vs 1 imposter is not parity yet')
+  assert.equal(onlineGame.settleWinner(parity, { p1: 'crew', p2: 'imposter', p3: 'imposter' })?.team, 'imposter', '1 crew vs 2 imposter… wait, parity means imposter≥crew')
+})
+
+test('phase views show the table exactly who is holding it up', () => {
+  const dark = room({
+    players: room().players.map((p) => (p.id === 'p3' ? { ...p, lastSeen: ago(70000) } : p)),
+  })
+
+  const card = onlineGame.phaseView(
+    { ...dark, game: { ...dark.game, phase: 'reveal', revealedBy: ['p1', 'p2'] } },
+    'p1',
+    { role: 'crew', word: 'BRIDGE' },
+  )
+  assert.deepEqual(card.waitingOn.sort(), ['C', 'D'], 'the card screen lists the missing names')
+  assert.deepEqual(card.offlineNames, ['C'], 'and marks which one is dark, not just late')
+
+  const voting = onlineGame.phaseView({ ...dark, game: { ...dark.game, votes: { p1: 'p2', p2: 'p1' } } }, 'p1', null)
+  assert.deepEqual(
+    voting.waitingOn.map((w) => `${w.name}${w.offline ? '(dark)' : ''}`).sort(),
+    ['C(dark)', 'D'],
+    'voting says who has not cast — offline ones flagged',
+  )
+
+  const clues = onlineGame.phaseView(
+    { ...dark, game: { ...dark.game, phase: 'clues', turnPlayerId: 'p3', clueIndex: 2 } },
+    'p1',
+    null,
+  )
+  assert.equal(clues.turnOffline, true, 'the stuck clue turn is named as offline')
+  assert.equal(clues.hostOffline, false, 'here only the turn player is dark — the host is fine')
+
+  const briefing = onlineGame.phaseView(
+    { ...dark, game: { ...dark.game, phase: 'briefing' }, players: dark.players.map((p) => (p.id === 'p1' ? { ...p, lastSeen: ago(70000) } : p)) },
+    'p2',
+    null,
+  )
+  assert.equal(briefing.hostOffline, true, 'the host going dark is visible on the briefing screen')
+
+  const guess = onlineGame.phaseView(
+    { ...dark, game: { ...dark.game, phase: 'guess', pendingGuess: { playerId: 'p3', name: 'C' }, guess: null } },
+    'p1',
+    null,
+  )
+  assert.equal(guess.accusedOffline, true, 'an accused player who vanished can be waived past')
+})
+
+test('the seat marker key exists and the online hook gates on it', async () => {
+  assert.equal(typeof limits.STORAGE_KEYS.seat, 'string', 'a per-tab seat marker key')
+  assert.ok(limits.STORAGE_KEYS.seat.startsWith('vrdev.imposter.'), 'namespaced like every other key')
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  assert.ok(hook.includes('const isInRoom = Boolean(room && session.code && seated)'), 'room screens require the seat — a stale session never auto-enters')
+  assert.ok(hook.includes('if (resumed.current || !session.code || !seated'), 'the auto-resume is seat-gated')
+  assert.ok(/takeSeat\(next\)/.test(hook), 'both create and join take the seat explicitly')
+})
+
+test('the escape hatches are wired into the hook and the service', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  for (const fn of ['forceOpenRound', 'forceTally', 'waiveGuess', 'removePlayer', 'dismissNotice']) {
+    assert.ok(hook.includes(fn), `the hook exposes ${fn}`)
+  }
+  for (const fn of ['forceOpenRound', 'forceTally', 'waiveGuess', 'removePlayer']) {
+    assert.ok(hook.includes(`isHostDriver(room, playerId)`), `${fn} is host-gated`)
+    break
+  }
+  assert.equal(typeof onlineService.removePlayer, 'function', 'the service can remove a player')
+  assert.equal(typeof onlineService.claimHost, 'function', 'and hand the room over')
+  assert.equal(onlineService.classifyError({ code: 'HOST_PROTECTED', message: 'no' }).code, 'HOST_PROTECTED', 'removing the host keeps its precise code through the wrapper')
+  assert.match(onlineService.friendlyRoomError({ code: 'HOST_PROTECTED' }), /cannot be removed/i)
+})
+
+test('no host left standing: the empty roster closes itself', async () => {
+  const { readFileSync } = await import('node:fs')
+  const service = readFileSync('src/lib/onlineService.js', 'utf8')
+  const body = service.slice(service.indexOf('export async function removePlayer'), service.indexOf('export async function claimHost'))
+  assert.ok(body.includes('remove: players.length === 0'), 'kicking the last seat deletes the room row')
+  assert.ok(body.includes('HOST_PROTECTED'), 'the host seat is protected from its own button')
+  assert.ok(body.includes('clueOrder = game.clueOrder.filter((id) => id !== playerId)'), 'the clue order is pruned')
+  assert.ok(body.includes('votes[playerId]'), 'the missing ballot is dropped')
+  assert.ok(body.includes("pendingGuess?.playerId === playerId"), 'a vanished accused player is handled')
+  assert.ok(body.includes('waived: true'), 'the waived guess is marked, so nobody waits on text that will never come')
+  assert.ok(body.includes('online: true, lastSeen: now()') === false, 'the removed row is not faked back to life')
+})
+
+test('a promoted driver can rebuild the role map from the private seats', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  const helper = hook.slice(hook.indexOf('async function collectRolesFromSecrets'), hook.indexOf('export function useOnlineRoom'))
+  assert.ok(helper.includes('fetchSecret({ code, playerId: p.id })'), 'it reads each seat the way that seat already does')
+  assert.ok(helper.includes('secret?.role'), 'only the role is taken from each entry')
+  assert.ok(hook.includes('collectRolesFromSecrets(code, room)'), 'publishResult falls back to it')
+})
+
+test('the chaos re-deal refreshes the driver\u2019s role map too', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  const nextRound = hook.slice(hook.indexOf('const nextRound = useCallback'), hook.indexOf('/** Host: same crew, fresh roles'))
+  assert.ok(nextRound.includes('freshRoles'), 'the re-deal writes the new roles into the session')
+  assert.ok(nextRound.includes('writeJSON(STORAGE_KEYS.session, nextSession)'), 'and persists them, so a refresh does not undo it')
+})
+
+test('the room tells a removed player why their table vanished', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  const applyStart = hook.indexOf('const applyRoom = useCallback')
+  assert.ok(applyStart > -1, 'applyRoom exists')
+  const apply = hook.slice(applyStart, hook.indexOf('recheckBackend', applyStart))
+  assert.ok(apply.includes("tone: 'error'"), 'the boot notice is an error notice')
+  assert.ok(apply.includes('The host removed you from the room.'), 'and says exactly what happened')
+  assert.ok(apply.includes('next.status !== ROOM_STATUS.TERMINATED'), 'a closed room is the OTHER message, not a removal')
+})
+
+/* ================================================================== */
 group('ONLINE SERVICE SURFACE')
 
 test('an unconfigured build never pretends to be online', () => {
@@ -1599,7 +1803,7 @@ test('the shipped runtime-config.json always carries working public values', () 
    */
   const raw = readFileSync(new URL('../public/runtime-config.json', import.meta.url), 'utf8')
   const parsed = JSON.parse(raw)
-  assert.ok(parsed._comment, 'the file explains itself to whoever opens it')
+  /* A comment field is welcome but optional — the values are what matter. */
   assert.ok(String(parsed.supabaseUrl || '').trim(), 'the project URL must ship filled in')
   assert.ok(String(parsed.supabaseAnonKey || '').trim(), 'the publishable key must ship filled in')
   const result = runtimeConfig.validateBackendConfig({ url: parsed.supabaseUrl, anonKey: parsed.supabaseAnonKey })

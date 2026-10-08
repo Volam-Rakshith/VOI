@@ -5,7 +5,7 @@ import { Badge } from '../ui/Layout.jsx'
 
 const initials = (name) => (name || '?').trim().slice(0, 1).toUpperCase()
 
-export function PlayerList({ players = [], hostId, myId = null, graceMs = 45000 }) {
+export function PlayerList({ players = [], hostId, myId = null, graceMs = 45000, onRemove = null }) {
   const now = Date.now()
   const online = (player) => player.online !== false && now - (player.lastSeen || 0) < graceMs
 
@@ -54,6 +54,16 @@ export function PlayerList({ players = [], hostId, myId = null, graceMs = 45000 
                 {isHost && <Badge tone="magenta">host</Badge>}
                 {!isHost && player.ready && <Badge tone="emerald">ready</Badge>}
                 {!isHost && !player.ready && <Badge tone="muted">waiting</Badge>}
+                {onRemove && !isHost && !isMe && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(player.id, player.name)}
+                    aria-label={`Remove ${player.name} from the room`}
+                    className="rounded-lg border border-fuchsia-400/35 px-2 py-1 font-display text-[9.5px] uppercase tracking-[.16em] text-fuchsia-200/75 transition hover:border-fuchsia-300/70 hover:text-fuchsia-100"
+                  >
+                    remove
+                  </button>
+                )}
               </span>
             </motion.li>
           )

@@ -38,10 +38,14 @@ export function LobbyView({ online, onExit }) {
   }
 
   const handleConfirm = async () => {
-    if (confirm === 'leave') {
+    if (confirm?.kind === 'remove') {
+      const result = await actions.removePlayer(confirm.id)
+      if (!result?.ok) toast.error(result?.error || 'Could not remove that player.')
+      else toast.success(`${confirm.name} was removed from the room.`)
+    } else if (confirm?.kind === 'leave') {
       await actions.leave()
       onExit?.()
-    } else if (confirm === 'close') {
+    } else if (confirm?.kind === 'close') {
       await actions.closeRoom()
       onExit?.()
     }
@@ -53,7 +57,7 @@ export function LobbyView({ online, onExit }) {
       <ScreenHeader
         title={`Lobby · ${room.code}`}
         eyebrow={room.status === ROOM_STATUS.LOBBY ? 'waiting for players' : room.status}
-        onBack={() => setConfirm(isHost ? 'close' : 'leave')}
+        onBack={() => setConfirm({ kind: isHost ? 'close' : 'leave' })}
         right={<Badge tone={connection.state === 'connected' ? 'emerald' : 'amber'}>{connection.state}</Badge>}
       />
 
@@ -75,7 +79,17 @@ export function LobbyView({ online, onExit }) {
             right={<Badge tone="cyan">{room.players.length}</Badge>}
           />
           <PanelBody>
-            <PlayerList players={room.players} hostId={room.hostId} myId={session.playerId} />
+            <PlayerList
+              players={room.players}
+              hostId={room.hostId}
+              myId={session.playerId}
+              onRemove={isHost ? (id, name) => setConfirm({ kind: 'remove', id, name }) : null}
+            />
+            {isHost && room.players.some((p) => p.id !== room.hostId && !p.ready) && (
+              <p className="mt-2.5 text-[11px] leading-relaxed text-violet-200/50">
+                Somebody not showing up? Remove them with the button on their row — the room starts without no-shows.
+              </p>
+            )}
           </PanelBody>
         </Panel>
 
@@ -208,7 +222,7 @@ export function LobbyView({ online, onExit }) {
                 {busy === 'starting' ? 'Dealing…' : canStart ? `Start game · ${room.players.length} players` : 'Waiting for everyone to ready up'}
               </Button>
             )}
-            <Button variant="quiet" size="sm" fullWidth onClick={() => setConfirm(isHost ? 'close' : 'leave')}>
+            <Button variant="quiet" size="sm" fullWidth onClick={() => setConfirm({ kind: isHost ? 'close' : 'leave' })}>
               {isHost ? 'Close room' : 'Leave room'}
             </Button>
           </div>
@@ -217,13 +231,21 @@ export function LobbyView({ online, onExit }) {
 
       <ConfirmDialog
         open={Boolean(confirm)}
-        title={confirm === 'close' ? 'Close this room?' : 'Leave this room?'}
-        message={
-          confirm === 'close'
-            ? 'Every player is disconnected and the room is deleted, so the code can never be reused. Open a new room whenever you want another game.'
-            : 'You can rejoin later with the same name and room code while the room is still live.'
+        title={
+          confirm?.kind === 'remove'
+            ? `Remove ${confirm.name} from the room?`
+            : confirm?.kind === 'close'
+              ? 'Close this room?'
+              : 'Leave this room?'
         }
-        confirmLabel={confirm === 'close' ? 'Close room' : 'Leave'}
+        message={
+          confirm?.kind === 'remove'
+            ? 'Their seat is cleared so the room can start and play without them. If their phone wakes up, they can join a fresh room — they just cannot hold this one hostage.'
+            : confirm?.kind === 'close'
+              ? 'Every player is disconnected and the room is deleted, so the code can never be reused. Open a new room whenever you want another game.'
+              : 'You can rejoin later with the same name and room code while the room is still live.'
+        }
+        confirmLabel={confirm?.kind === 'remove' ? 'Remove player' : confirm?.kind === 'close' ? 'Close room' : 'Leave'}
         onCancel={() => setConfirm(null)}
         onConfirm={handleConfirm}
       />
