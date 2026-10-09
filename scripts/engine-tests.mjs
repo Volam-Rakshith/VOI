@@ -1414,6 +1414,50 @@ test('the turn clock auto-starts and survives a full stance round-trip', () => {
   assert.equal(onlineGame.timerStance(null, 30), 'ready', 'no clock at all reads as a waiting full one')
 })
 
+test('the LOCAL table auto-starts too — round open and every next clue', () => {
+  const opened = engine.startRound(engine.createGame(config({ turnSeconds: 20 }), names(4), SECRET))
+  assert.equal(opened.phase, 'clues', 'startRound lands on the clue phase')
+  assert.equal(opened.timer.running, true, 'and the clock is already ticking — no Start button ritual')
+  assert.equal(opened.timer.secondsLeft, 20, 'a full turn, freshly dealt')
+  const nexted = engine.nextClue({ ...opened, clueIndex: 0 })
+  assert.equal(nexted.clueIndex, 1)
+  assert.equal(nexted.timer.running, true, 'every new clue turn opens live too')
+  assert.equal(nexted.timer.secondsLeft, 20, 'with the FULL turn, not the leftover of the last player')
+  const last = engine.nextClue({ ...opened, clueIndex: opened.clueOrder.length - 1 })
+  assert.equal(last.phase, 'vote_intro')
+  assert.equal(last.timer.running, false, 'the ring rests when voting opens — clocks are a clue-phase thing')
+  const paused = engine.pauseTimer(nexted)
+  assert.equal(paused.timer.running, false, 'Pause still works on the local clock')
+  assert.equal(paused.timer.secondsLeft, 20, 'freezing keeps the remaining seconds')
+  const resumed = engine.startTimer(paused)
+  assert.equal(resumed.timer.running, true, 'and it restarts live from there (local startTimer hands back a full turn — long-standing)')
+})
+
+test('a stranger clock cannot hijack the shared countdown', () => {
+  const now = 1_000_000_000_000
+  const ahead = { running: true, duration: 30, startedAt: now + 120000 } // writer clock 2 min in the future
+  assert.equal(onlineGame.timerRemaining(ahead, now), 30, 'a future stamp reads as JUST started — never 150 seconds on the ring')
+  const behind = { running: true, duration: 30, startedAt: now - 120000 } // writer clock 2 min behind
+  assert.equal(onlineGame.timerRemaining(behind, now), 0, 'without an observer stamp a hopeless clock at least clamps to time-up, not negative')
+  assert.equal(onlineGame.timerRemaining(behind, now, now - 5000), 25, 'with an observer stamp, our own 5 s of watching wins: 25 left')
+  const sane = { running: true, duration: 30, startedAt: now - 10000 }
+  assert.equal(onlineGame.timerRemaining(sane, now, now - 10000), 20, 'healthy clocks use the writer stamp exactly — unchanged behaviour')
+  assert.equal(onlineGame.timerRemaining(sane, now, now - 1000), 20, 'a sane writer beats a jittery observer read (20, not 29)')
+  assert.equal(onlineGame.timerRemaining({ running: false, duration: 12, startedAt: null }, now), 12, 'paused stays the frozen scalar — no clocks involved')
+})
+
+test('a confirmed-dead room drops the rejoin card; a kick or a walk-away keeps it', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  assert.ok(hook.includes('const forgetRoom = useCallback'), 'a single forgetter exists')
+  assert.ok(hook.includes('if (next?.status === ROOM_STATUS.TERMINATED) forgetRoom()'), 'realtime sees the closure ⇒ the card goes')
+  assert.ok(hook.includes("error?.code === 'NOT_FOUND' || error?.code === 'EXPIRED' || error?.code === 'TERMINATED') forgetRoom()"), 'a dead row on retry ⇒ the card goes')
+  const closeBody = hook.slice(hook.indexOf('const closeRoom'), hook.indexOf('const closeRoom') + 700)
+  assert.ok(closeBody.includes('forgetRoom()') && closeBody.includes('terminateRoom'), 'the host who ends it never sees it offered back')
+  const kickBranch = hook.slice(hook.indexOf('const applyRoom'), hook.indexOf('const applyRoom') + 900)
+  assert.ok(!/removed you from the room[\s\S]*forgetRoom/.test(kickBranch), 'a kick keeps the note — the room is still alive and rejoinable')
+})
+
 test('the hook auto-starts every turn and gates the controls to the host', async () => {
   const { readFileSync } = await import('node:fs')
   const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
@@ -1440,6 +1484,7 @@ test('the turn buzz is a moment, not a role — one pattern, once per turn', asy
   assert.ok(/myTurn: \[16, 70, 16\]/.test(haptics), 'a two-tap knock ships with the cue table')
   const phases = readFileSync('src/components/online/OnlineGamePhases.jsx', 'utf8')
   const effect = phases.slice(phases.indexOf('hapticTurnRef.current = key') - 420, phases.indexOf('hapticTurnRef.current = key') + 120)
+  assert.ok(phases.includes('hapticTurnRef.current = `${room.game.round || 1}:0`'), 'the round-open knock and the first player’s turn knock never double-buzz')
   assert.ok(effect.includes('view?.isMyTurn') && effect.includes('ONLINE_PHASES.CLUES'), 'fires only when a clue turn lands on you')
   assert.ok(effect.includes("haptic('myTurn', vibrate)"), 'the one shared pattern — nothing role-specific')
   assert.ok(effect.includes('hapticTurnRef.current === key'), 'and deduped per round+index so it knocks once')
@@ -1489,14 +1534,46 @@ test('the service pins a chosen code, refuses ugly ones, and never swaps a taken
   assert.ok(service.includes('await roomExists(pinned)'), 'the room is checked free before the insert')
 })
 
-test('the setup screen only unlocks the input through the break', async () => {
+test('the setup screen gates the custom code behind the break', async () => {
   const { readFileSync } = await import('node:fs')
   const setup = readFileSync('src/components/lobby/OnlineSetup.jsx', 'utf8')
-  assert.ok(setup.includes("import { AdBreak } from './AdBreak.jsx'"), 'the overlay is mounted from the setup panel')
-  assert.ok(setup.includes('Watch ad') && setup.includes('setCodeUnlocked(true)'), 'watching the break is the only unlock path')
-  assert.ok(setup.includes('disabled={!codeUnlocked}'), 'the input is locked until then')
+  assert.ok(setup.includes('useSponsorGate'), 'the overlay rides the shared sponsor gate')
+  assert.ok(setup.includes('Watch ad') && setup.includes('setCodeUnlocked(true)'), 'watching the break is the unlock path')
+  assert.ok(setup.includes('disabled={!unlocked}'), 'the input is locked until one has been watched')
+  assert.ok(setup.includes('adGateNeedsBreak(readJSON(STORAGE_KEYS.adWatch'), 'a break watched at another door unlocks this one too')
   assert.ok(setup.includes('customCode: code'), 'and only an unlocked, validated code reaches create')
   assert.ok(setup.includes('Create room · ${customCode}'), 'the button repeats the chosen code — no surprises')
+})
+
+test('every door into play asks the sponsor gate first', async () => {
+  const { readFileSync } = await import('node:fs')
+  const gate = readFileSync('src/hooks/useSponsorGate.jsx', 'utf8')
+  assert.ok(gate.includes('adGateNeedsBreak(lastWatchedAt())'), 'grace-window check decides whether the ad must play')
+  assert.ok(gate.includes('writeJSON(STORAGE_KEYS.adWatch, { at: Date.now() })'), 'a COMPLETED break is what buys the grace')
+  assert.ok(gate.includes('pending.current = null') && gate.includes('const cancel'), '✕ cancels the tap and remembers nothing')
+  const setup = readFileSync('src/components/lobby/OnlineSetup.jsx', 'utf8')
+  assert.ok(setup.includes("sponsor.request(() => onSubmit?.({ mode: 'join'"), 'join goes through the break')
+  assert.ok(setup.includes('sponsor.request(() =>') && setup.includes("mode: 'create'"), 'so does create')
+  assert.ok(setup.includes('sponsor.request(() => onQuickJoin?.(lastSession))'), 'and the rejoin card')
+  assert.ok(setup.indexOf('setErrors({ code: cleanCode.error })') < setup.indexOf("sponsor.request(() => onSubmit?.({ mode: 'join'"), 'validation runs BEFORE the ad — nobody pays for a typo')
+  const local = readFileSync('src/components/game/SetupScreen.jsx', 'utf8')
+  assert.ok(local.includes('sponsor.request(() =>') && local.includes('onStart?.('), 'starting a local game pays the break too')
+  assert.ok(local.includes('{sponsor.overlay}'), 'and the plate renders on that screen')
+  const invite = readFileSync('src/pages/Lobby.jsx', 'utf8')
+  assert.ok(invite.includes('useSponsorGate') && invite.includes('sponsor.request(async () =>'), 'the invite link is a join door too — gated')
+  assert.ok(invite.indexOf('validatePlayerName') < invite.indexOf('sponsor.request(async () =>'), 'validation first, ad second — even here')
+})
+
+test('the grace window is three minutes — generous to retries, not to dodgers', () => {
+  const now = 1_700_000_000_000
+  assert.equal(adGate.adGateNeedsBreak(null, now), true, 'never watched → ad required')
+  assert.equal(adGate.adGateNeedsBreak(undefined, now), true)
+  assert.equal(adGate.adGateNeedsBreak('nonsense', now), true, 'garbage in storage never opens a back door')
+  assert.equal(adGate.adGateNeedsBreak(now - 10000, now), false, '10 s after watching → the next door is free')
+  assert.equal(adGate.adGateNeedsBreak(now - (adGate.AD_GRACE_MS - 1), now), false, 'one ms inside the window')
+  assert.equal(adGate.adGateNeedsBreak(now - adGate.AD_GRACE_MS, now), true, 'the window closes exactly at three minutes')
+  assert.equal(adGate.adGateNeedsBreak(now + 5000, now), true, 'a future stamp is treated as no ad at all')
+  assert.equal(adGate.AD_GRACE_MS, 180000)
 })
 
 test('game over: guests detach (seat kept, rejoin back), the host finishes the room', async () => {
@@ -1520,12 +1597,20 @@ test('the last room survives a leave so the table stays reachable', async () => 
   assert.ok(session.includes('readJSON(STORAGE_KEYS.session, null) || readJSON(STORAGE_KEYS.lastRoom, null)'), 'the rejoin card falls back to the remembered room')
 })
 
-test('the ads folder ships with an honest empty playlist', async () => {
-  const { readFile } = await import('node:fs/promises')
+test('the sponsor playlist ships the real clips and every entry exists', async () => {
+  const { readFile, stat } = await import('node:fs/promises')
   const list = JSON.parse(await readFile('public/ads/playlist.json', 'utf8'))
-  assert.ok(Array.isArray(list) && list.length === 0, 'ships empty — the organiser adds mp4s without a rebuild')
+  assert.ok(Array.isArray(list) && list.length === 11, `eleven sponsor clips ship today, saw ${Array.isArray(list) ? list.length : 'non-array'}`)
+  assert.ok(
+    list.every((f) => typeof f === 'string' && /^\w[\w.-]*\.mp4$/.test(f)),
+    'plain ascii file names — no spaces, no paths to mangle',
+  )
+  for (const file of list) {
+    const info = await stat(`public/ads/${file}`)
+    assert.ok(info.size > 1000000, `${file} is a real video, not a ${info.size} byte placeholder`)
+  }
   const readme = await readFile('public/ads/README.txt', 'utf8')
-  assert.ok(readme.includes('.mp4') && readme.includes('playlist.json'), 'and says exactly where to drop them')
+  assert.ok(readme.includes('.mp4') && readme.includes('playlist.json'), 'and the folder says exactly how to swap them')
 })
 
 /* ================================================================== */

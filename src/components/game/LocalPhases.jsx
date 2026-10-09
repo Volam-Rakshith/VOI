@@ -62,13 +62,7 @@ export function HandoffPhase({ state, view, actions, showDecoy }) {
 
   return (
     <PhaseFrame state={state} view={view} phaseLabel="secret reveal" onQuit={actions.quit}>
-      <motion.div
-        key={player.id}
-        initial={{ opacity: 0, y: 14, filter: 'blur(8px)' }}
-        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        transition={{ duration: 0.35 }}
-        className="text-center"
-      >
+      <motion.div key={player.id} initial={{ opacity: 0, y: 14, filter: 'blur(8px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} transition={{ duration: 0.35 }} className="text-center">
         <p className="label text-[9px]">pass the device to</p>
         <h2 className="mt-1 font-display text-[clamp(22px,8vw,30px)] tracking-[.1em] text-white text-neon">{player.name}</h2>
         <div className="mt-3 flex items-center justify-center gap-3">
@@ -120,13 +114,7 @@ export function HandoffPhase({ state, view, actions, showDecoy }) {
             </p>
           </motion.div>
         ) : (
-          <motion.p
-            key="hint"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="text-center text-[11.5px] text-violet-200/50"
-          >
+          <motion.p key="hint" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center text-[11.5px] text-violet-200/50">
             {revealed ? 'Memorise it, then tap the card to hide your secret.' : 'Tap the card to reveal your secret.'}
           </motion.p>
         )}
@@ -143,7 +131,10 @@ export function BriefingPhase({ state, view, actions, briefLine }) {
     <PhaseFrame state={state} view={view} phaseLabel="briefing" onQuit={actions.quit}>
       <Panel annotated className="mx-auto w-full max-w-md">
         <PanelBody className="space-y-4 text-center">
-          <Badge tone="cyan">round {state.round}{state.config.winRule === 'survival' ? ` of ${state.totalRounds}` : ''}</Badge>
+          <Badge tone="cyan">
+            round {state.round}
+            {state.config.winRule === 'survival' ? ` of ${state.totalRounds}` : ''}
+          </Badge>
           <h2 className="font-display text-[20px] leading-tight tracking-[.1em] text-violet-50">GIVE YOUR CLUE.</h2>
           <p className="font-display text-[14px] tracking-[.14em] text-magenta-glow">DON'T REVEAL THE WORD.</p>
           <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-violet-100/70">{briefLine}</p>
@@ -193,7 +184,7 @@ export function CluesPhase({ state, view, actions, muted }) {
         <div className="flex w-full max-w-md flex-wrap items-center justify-center gap-2">
           {!state.timer.running && state.timer.secondsLeft === state.config.turnSeconds && (
             <Button variant="primary" size="sm" onClick={actions.startTimer}>
-              Start timer
+              Start timer — first clue is live
             </Button>
           )}
           {state.timer.running && (
@@ -203,7 +194,7 @@ export function CluesPhase({ state, view, actions, muted }) {
           )}
           {!state.timer.running && state.timer.secondsLeft < state.config.turnSeconds && state.timer.secondsLeft > 0 && (
             <Button variant="ghost" size="sm" onClick={actions.startTimer}>
-              Resume
+              Resume (next turn auto-starts)
             </Button>
           )}
           <Button variant="quiet" size="sm" onClick={actions.resetTimer}>
@@ -221,9 +212,7 @@ export function CluesPhase({ state, view, actions, muted }) {
         <Button variant={isLast ? 'primary' : 'default'} size="lg" fullWidth onClick={actions.nextClue}>
           {isLast ? 'Clues done — move to voting' : 'Next player'}
         </Button>
-        <p className="text-center text-[11px] text-violet-200/45">
-          Skipping ahead is allowed — the table decides when a turn is really over.
-        </p>
+        <p className="text-center text-[11px] text-violet-200/45">Skipping ahead is allowed — the table decides when a turn is really over.</p>
       </div>
     </PhaseFrame>
   )
@@ -240,11 +229,7 @@ export function VoteIntroPhase({ state, view, actions }) {
         <PanelBody className="space-y-4 text-center">
           <Glyph name="skull" size={30} className="mx-auto text-fuchsia-300" />
           <h2 className="font-display text-[18px] tracking-[.12em] text-violet-50">WHO IS THE IMPOSTER?</h2>
-          <p className="text-[12.5px] leading-relaxed text-violet-100/75">
-            {secret
-              ? 'Debate out loud, then vote one at a time — every ballot stays hidden until the tally. Nobody sees a vote while it is being cast.'
-              : 'Debate out loud, then lock a single accusation for the whole table. One call decides this round.'}
-          </p>
+          <p className="text-[12.5px] leading-relaxed text-violet-100/75">{secret ? 'Debate out loud, then vote one at a time — every ballot stays hidden until the tally. Nobody sees a vote while it is being cast.' : 'Debate out loud, then lock a single accusation for the whole table. One call decides this round.'}</p>
           <p className="text-[11.5px] leading-relaxed text-violet-200/55">{view.winText}</p>
         </PanelBody>
       </Panel>
@@ -271,9 +256,7 @@ export function VoteHandoffPhase({ state, view, actions }) {
             {view.voteProgress.index + 1}/{view.voteProgress.total}
           </span>
         </div>
-        <p className="max-w-xs text-[12px] leading-relaxed text-violet-200/60">
-          Nobody else should see the next screen. Your vote is locked the moment you submit it.
-        </p>
+        <p className="max-w-xs text-[12px] leading-relaxed text-violet-200/60">Nobody else should see the next screen. Your vote is locked the moment you submit it.</p>
         <Button variant="primary" size="lg" fullWidth className="max-w-sm" onClick={actions.openBallot}>
           Open my ballot
         </Button>
@@ -306,9 +289,7 @@ export function VoteCastPhase({ state, view, actions, onSubmitted, open = false 
     <PhaseFrame state={state} view={view} phaseLabel={open ? 'accusation' : 'voting'} onQuit={actions.quit}>
       <div className="text-center">
         <p className="label text-[9px]">{open ? 'the table accuses' : 'voting as'}</p>
-        <h2 className="mt-1 font-display text-[clamp(18px,6.5vw,24px)] tracking-[.1em] text-white text-neon">
-          {open ? 'PICK THE IMPOSTER' : target?.name}
-        </h2>
+        <h2 className="mt-1 font-display text-[clamp(18px,6.5vw,24px)] tracking-[.1em] text-white text-neon">{open ? 'PICK THE IMPOSTER' : target?.name}</h2>
         {!open && <p className="mt-1.5 text-[11.5px] text-violet-200/55">Tap the player you believe is the imposter.</p>}
       </div>
 
@@ -326,9 +307,7 @@ export function VoteCastPhase({ state, view, actions, onSubmitted, open = false 
         <Button variant="primary" size="lg" fullWidth disabled={!selected} onClick={submit}>
           {open ? 'Lock accusation' : 'Lock my vote'}
         </Button>
-        <p className="text-center text-[11px] text-violet-200/45">
-          {open ? 'One accusation for the whole table. Choose carefully.' : 'Your vote is hidden until every player has voted.'}
-        </p>
+        <p className="text-center text-[11px] text-violet-200/45">{open ? 'One accusation for the whole table. Choose carefully.' : 'Your vote is hidden until every player has voted.'}</p>
       </div>
     </PhaseFrame>
   )
@@ -347,11 +326,7 @@ export function TallyPhase({ state, view, actions, muted }) {
       <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
         {!revealed ? (
           <>
-            <motion.div
-              animate={{ rotate: [0, 6, -6, 0] }}
-              transition={{ duration: 2.4, repeat: Infinity }}
-              className="grid h-16 w-16 place-items-center rounded-full border border-cyan-300/50 bg-cyan-500/10 shadow-neon-cyan"
-            >
+            <motion.div animate={{ rotate: [0, 6, -6, 0] }} transition={{ duration: 2.4, repeat: Infinity }} className="grid h-16 w-16 place-items-center rounded-full border border-cyan-300/50 bg-cyan-500/10 shadow-neon-cyan">
               <Glyph name="eye" size={26} className="text-cyan-200" />
             </motion.div>
             <div>
@@ -417,13 +392,8 @@ export function GuessPhase({ state, view, actions }) {
         <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
           <Badge tone="magenta">final guess</Badge>
           <div>
-            <h2 className="font-display text-[clamp(22px,7.5vw,30px)] tracking-[.1em] text-white text-neon">
-              {accused.name}
-            </h2>
-            <p className="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-violet-200/70">
-              Pass the device to {accused.name}. Voted out players get one shot at naming the crew's word — get it
-              right and the game flips.
-            </p>
+            <h2 className="font-display text-[clamp(22px,7.5vw,30px)] tracking-[.1em] text-white text-neon">{accused.name}</h2>
+            <p className="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-violet-200/70">Pass the device to {accused.name}. Voted out players get one shot at naming the crew's word — get it right and the game flips.</p>
           </div>
           <Button
             variant="primary"
@@ -446,12 +416,8 @@ export function GuessPhase({ state, view, actions }) {
       <div className="flex flex-1 flex-col justify-center gap-4">
         <div className="text-center">
           <Badge tone="magenta">one guess</Badge>
-          <h2 className="mt-3 font-display text-[clamp(19px,6.5vw,26px)] tracking-[.12em] text-white text-neon">
-            WHAT WAS THE WORD?
-          </h2>
-          <p className="mt-2 text-[12.5px] leading-relaxed text-violet-200/65">
-            Everyone else, look away. This answer settles the whole game.
-          </p>
+          <h2 className="mt-3 font-display text-[clamp(19px,6.5vw,26px)] tracking-[.12em] text-white text-neon">WHAT WAS THE WORD?</h2>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-violet-200/65">Everyone else, look away. This answer settles the whole game.</p>
         </div>
 
         <Panel className="px-4 py-4">
@@ -497,16 +463,7 @@ export function ResultPhase({ state, view, actions, onExit, muted }) {
 
   if (winner) {
     return (
-      <WinnerScreen
-        winner={winner.team}
-        reason={winner.reason}
-        word={secretWord}
-        players={view.reveal}
-        round={state.round}
-        onPlayAgain={actions.replay}
-        onExit={onExit}
-        exitLabel="Main menu"
-      >
+      <WinnerScreen winner={winner.team} reason={winner.reason} word={secretWord} players={view.reveal} round={state.round} onPlayAgain={actions.replay} onExit={onExit} exitLabel="Main menu">
         {summary && (
           <Panel variant="bare" className="!glass clip-hud px-4 py-3">
             <p className="label mb-2 text-[9px]">{summary.tie ? 'vote was tied' : 'eliminated'}</p>
@@ -536,21 +493,9 @@ export function ResultPhase({ state, view, actions, onExit, muted }) {
     <PhaseFrame state={state} view={view} phaseLabel="result" onQuit={actions.quit}>
       <div className="space-y-3">
         <div className="text-center">
-          <Badge tone={summary?.tie || noImposter ? 'amber' : 'magenta'}>
-            {noImposter ? 'no imposter' : summary?.tie ? 'tied vote' : 'voted out'}
-          </Badge>
-          <h2 className="mt-3 font-display text-[clamp(20px,7vw,28px)] tracking-[.1em] text-white text-neon">
-            {noImposter ? 'NOBODY' : summary?.eliminatedName || 'Nobody'}
-          </h2>
-          <p className="mt-2 font-display text-[12.5px] tracking-[.18em] text-magenta-glow">
-            {noImposter
-              ? 'EVERY PLAYER WAS CREW THIS ROUND'
-              : summary?.tie
-                ? 'THE VOTE WAS SPLIT — NOBODY LEAVES'
-                : removedImposter
-                  ? 'CAUGHT — THAT WAS AN IMPOSTER !'
-                  : 'VOTED OUT — A CREWMATE !'}
-          </p>
+          <Badge tone={summary?.tie || noImposter ? 'amber' : 'magenta'}>{noImposter ? 'no imposter' : summary?.tie ? 'tied vote' : 'voted out'}</Badge>
+          <h2 className="mt-3 font-display text-[clamp(20px,7vw,28px)] tracking-[.1em] text-white text-neon">{noImposter ? 'NOBODY' : summary?.eliminatedName || 'Nobody'}</h2>
+          <p className="mt-2 font-display text-[12.5px] tracking-[.18em] text-magenta-glow">{noImposter ? 'EVERY PLAYER WAS CREW THIS ROUND' : summary?.tie ? 'THE VOTE WAS SPLIT — NOBODY LEAVES' : removedImposter ? 'CAUGHT — THAT WAS AN IMPOSTER !' : 'VOTED OUT — A CREWMATE !'}</p>
         </div>
 
         {!noImposter && !summary?.tie && (summary?.order || []).length > 0 && (
@@ -560,13 +505,7 @@ export function ResultPhase({ state, view, actions, onExit, muted }) {
           </Panel>
         )}
 
-        <InlineNotice tone={noImposter ? 'warn' : summary?.tie ? 'warn' : removedImposter ? 'success' : 'error'}>
-          {noImposter
-            ? chaosNoImposterLine()
-            : summary?.tie
-              ? 'A split vote means nobody leaves — the game moves on to the next round.'
-              : outcomeLine}
-        </InlineNotice>
+        <InlineNotice tone={noImposter ? 'warn' : summary?.tie ? 'warn' : removedImposter ? 'success' : 'error'}>{noImposter ? chaosNoImposterLine() : summary?.tie ? 'A split vote means nobody leaves — the game moves on to the next round.' : outcomeLine}</InlineNotice>
       </div>
 
       <div className="mt-auto space-y-2">

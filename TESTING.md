@@ -28,8 +28,8 @@ Optional but recommended before committing:
 
 ```bash
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
-npm run test:engine   # 162 rule/utility tests → expect "162 passed, 0 failed"
-npm run test:ui       # 143 UI checks
+npm run test:engine   # 166 rule/utility tests → expect "167 passed, 0 failed"
+npm run test:ui       # 149 UI checks
 npm run test:live     # 22 multiplayer join cycles + 3 no-show rescue drills against the live Supabase project (needs network) (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
 npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
 ```

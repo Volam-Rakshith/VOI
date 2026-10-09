@@ -372,6 +372,38 @@ if (watchAd) {
   }
 }
 
+/* v1.0.18 — the JOIN door wears the same break, and declining skips the attempt. */
+{
+  const joinSeg = buttons().find((b) => /^Join room$/.test((b.textContent || '').trim()))
+  if (joinSeg) click(joinSeg)
+  await wait(360)
+  const labelled = (t) => {
+    const l = [...window.document.querySelectorAll('label')].find((x) => (x.textContent || '').includes(t))
+    return l ? window.document.getElementById(l.getAttribute('for')) : null
+  }
+  const nameIn = labelled('your name')
+  const codeIn = labelled('room code')
+  if (nameIn && codeIn) {
+    setValue(nameIn, 'Joiner')
+    setValue(codeIn, 'KMN4PQ')
+    await wait(180)
+    const joins = buttons().filter((b) => /^Join room$/.test((b.textContent || '').trim()))
+    click(joins[joins.length - 1])
+    await wait(420)
+    record('joining a room must watch the sponsor break first', Boolean(window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]')), 'no overlay in front of the join button')
+    const leaveDoor = buttonMatching(/not now/i)
+    if (leaveDoor) click(leaveDoor)
+    await wait(320)
+    record('and declining it never attempts the connection', !window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]') && !/Connecting…/.test(text()))
+  } else {
+    record('joining a room must watch the sponsor break first', false, 'join fields not found')
+    record('and declining it never attempts the connection', false, 'join fields not found')
+  }
+  const createSeg = buttons().find((b) => /^Create room$/.test((b.textContent || '').trim()))
+  if (createSeg) click(createSeg)
+  await wait(300)
+}
+
 /* The dropdown is the themed one, and still a real select underneath. */
 const categoryPicker = window.document.querySelector('#online-category')
 record('the category dropdown is the themed glass control', Boolean(categoryPicker) && categoryPicker.tagName === 'SELECT' && Boolean(categoryPicker.closest('.select-float')), categoryPicker ? `${categoryPicker.tagName} in ${categoryPicker.parentElement?.className}` : 'not found')
@@ -424,6 +456,27 @@ record('online screen offers backend setup instead of dead-ending', /connect a b
 await navigate('lobby?room=A7KQMN')
 record('room deep link renders the seat prompt', text().includes('TAKE YOUR SEAT') || text().includes('A7KQMN'))
 
+/* The invite link is a join door too — the same break stands in front of it. */
+{
+  window.localStorage.removeItem('vrdev.imposter.adwatch.v1')
+  const lobbyLabel = [...window.document.querySelectorAll('label')].find((l) => (l.textContent || '').includes('your name'))
+  const lobbyName = lobbyLabel ? window.document.getElementById(lobbyLabel.getAttribute('for')) : null
+  if (lobbyName) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(lobbyName, 'Guesty')
+    lobbyName.dispatchEvent(new window.Event('input', { bubbles: true }))
+    await wait(180)
+  }
+  const joinBtn = window.document.querySelector('#lobby-join')
+  if (joinBtn) click(joinBtn)
+  await wait(420)
+  record('the invite link joins only after the sponsor break', Boolean(window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]')), lobbyName ? 'no overlay behind the lobby join button' : 'name field not found on the lobby page')
+  const leaveDoor = buttonMatching(/not now/i)
+  if (leaveDoor) click(leaveDoor)
+  await wait(300)
+  record('and declining leaves the seat untaken', !window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]') && !/Connecting…/.test(text()) && (text().includes('TAKE YOUR SEAT') || text().includes('A7KQMN')))
+}
+
 /* Unknown route falls back to home instead of a blank screen */
 await navigate('does-not-exist')
 record('unknown routes fall back to the menu', text().includes('PLAY LOCAL'))
@@ -444,6 +497,22 @@ inputs.forEach((input, index) => {
   input.dispatchEvent(new window.Event('input', { bubbles: true }))
 })
 await wait(320)
+
+/* v1.0.18 — the sponsor break now stands in front of the LOCAL start too. */
+{
+  click(buttonMatching(/Deal the secrets/))
+  await wait(420)
+  record('starting a local game opens the sponsor break first', Boolean(window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]')))
+  const leaveDoor = buttonMatching(/not now/i)
+  if (leaveDoor) click(leaveDoor)
+  await wait(320)
+  record('declining the break cancels the deal', !window.document.querySelector('[role="dialog"][aria-label="Sponsor break"]') && Boolean(buttonMatching(/Deal the secrets/)))
+  /* The rest of the suite is PLAY, not gate-testing — grant the same three-minute
+     grace a watched break would buy so dealing flows proceed untouched. */
+  window.localStorage.setItem('vrdev.imposter.adwatch.v1', JSON.stringify({ at: Date.now() }))
+  await wait(60)
+}
+
 const dealButton = buttonMatching(/Deal the secrets/)
 record('setup becomes valid once names are entered', Boolean(dealButton) && !dealButton.disabled)
 
@@ -485,11 +554,10 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
 
   // 2. Briefing
   const briefed = await clickMatching(/^Start round 1$/, 700)
-  record('briefing opens the clue round', briefed && /clue turn|START TIMER/i.test(text()))
+  record('briefing opens the clue round', briefed && /clue turn/i.test(text()))
 
-  // 3. Clues with the timer
-  const timerStarted = await clickMatching(/^Start timer$/, 400)
-  record('the turn timer can be started', timerStarted && /Pause/i.test(text()))
+  // 3. Clues — v1.0.20: the local clock auto-starts when the round opens
+  record('the clue round opens with the timer ALREADY running', Boolean(buttonMatching(/^Pause$/)), 'no Pause button — clock did not auto-start')
   await clickMatching(/^Pause$/, 320)
   const resetWorked = await clickMatching(/^Reset$/, 320)
   record('the timer can be paused and reset', resetWorked)
@@ -591,7 +659,7 @@ record('setup becomes valid once names are entered', Boolean(dealButton) && !dea
 
     if (await tap(/Hand to next player|Everyone is ready/)) continue
     if (await tap(/^Start round \d+$/)) continue
-    if (await tap(/^Start timer$/)) continue
+    if (await tap(/^Start timer/)) continue
     if (await tap(/Next player|Clues done — move to voting/)) continue
     if (await tap(/Begin secret ballot|Open the accusation/)) continue
     if (await tap(/Open my ballot/)) continue
@@ -920,6 +988,8 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
   })
   record('a fresh chaos roster is fully nameable', chaosInputs.length === 6)
   await wait(300)
+  window.localStorage.setItem('vrdev.imposter.adwatch.v1', JSON.stringify({ at: Date.now() })) // grace re-stamped so the gate test above stays honest
+  await wait(60)
   const chaosDeal = await clickMatching(/Deal the secrets/, 700)
   record('a chaos game deals', chaosDeal && /pass the device to/i.test(text()))
   await waitUntil(() => hasPattern(HAPTIC.chaosRound), 900)
@@ -987,7 +1057,7 @@ record('the loading plate is announced to screen readers', /id="boot"[^>]*role="
 
   // Clue turn → voting → ballot → tally: each beat should have its cue.
   clearVibes()
-  await clickMatching(/^Start timer$/, 320)
+  if (!(await clickMatching(/Pause/, 320))) await clickMatching(/^Start timer/, 320) // v1.0.20: local clock auto-starts — Pause is the new live-state marker
   await clickMatching(/Next player|Clues done — move to voting/, 700)
   await waitUntil(() => vibes().length > 0, 900)
   record('the timer and turn changes fire cues', vibes().length > 0, JSON.stringify(vibes()))

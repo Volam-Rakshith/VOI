@@ -50,17 +50,10 @@ export function isVoteStalemate(state, tally) {
  */
 export function voteOutcomeLine({ name, wasImposter = false, alive = null, guess = null, chaosNoImposter = false } = {}) {
   const who = name || 'That player'
-  const left =
-    Number.isFinite(alive) && alive > 0
-      ? alive === 1
-        ? '1 player remains.'
-        : `${alive} players remain.`
-      : 'The hunt continues.'
+  const left = Number.isFinite(alive) && alive > 0 ? (alive === 1 ? '1 player remains.' : `${alive} players remain.`) : 'The hunt continues.'
   if (chaosNoImposter) return chaosNoImposterLine()
   if (wasImposter) {
-    return guess === 'wrong'
-      ? `${who} was an imposter ! The word went unguessed — ${left}`
-      : `${who} is out of the game. You caught an imposter ! ${left}`
+    return guess === 'wrong' ? `${who} was an imposter ! The word went unguessed — ${left}` : `${who} is out of the game. You caught an imposter ! ${left}`
   }
   return `${who} is out of the game. You voted out a crewmate ! ${left}`
 }
@@ -204,9 +197,7 @@ export function rollChaosImposterCount(playerCount) {
  */
 export function assignChaosRoles(playerCount, forcedCount = null) {
   const total = Math.max(2, Math.floor(playerCount) || 0)
-  const count = forcedCount === null
-    ? rollChaosImposterCount(total)
-    : Math.max(0, Math.min(total, Math.floor(forcedCount) || 0))
+  const count = forcedCount === null ? rollChaosImposterCount(total) : Math.max(0, Math.min(total, Math.floor(forcedCount) || 0))
   const roles = Array(total).fill(ROLES.CREW)
   const seats = shuffle(Array.from({ length: total }, (_, i) => i))
   for (let i = 0; i < count; i += 1) roles[seats[i]] = ROLES.IMPOSTER
@@ -333,11 +324,7 @@ export function rerollChaosRoles(state) {
 
   return {
     ...state,
-    players: state.players.map((p) =>
-      roleByPlayer.has(p.id)
-        ? { ...p, role: roleByPlayer.get(p.id), revealed: false }
-        : { ...p, revealed: false },
-    ),
+    players: state.players.map((p) => (roleByPlayer.has(p.id) ? { ...p, role: roleByPlayer.get(p.id), revealed: false } : { ...p, revealed: false })),
     chaos: true,
     chaosTier: tier,
     imposterCount,
@@ -383,9 +370,7 @@ export function hideCard(state) {
 export function advanceReveal(state) {
   const roster = alivePlayers(state)
   const nextIndex = state.revealIndex + 1
-  const players = state.players.map((p) =>
-    p.id === roster[state.revealIndex]?.id ? { ...p, revealed: true } : p,
-  )
+  const players = state.players.map((p) => (p.id === roster[state.revealIndex]?.id ? { ...p, revealed: true } : p))
   if (nextIndex >= roster.length) {
     return { ...state, players, revealIndex: 0, cardVisible: false, phase: GAME_PHASES.BRIEFING }
   }
@@ -402,7 +387,8 @@ export function startRound(state) {
     clueIndex: 0,
     votes: {},
     voteIndex: 0,
-    timer: { running: false, secondsLeft: state.config.turnSeconds, duration: state.config.turnSeconds },
+    /* Auto-start, like the online table: opening the round IS the start gun. */
+    timer: { running: true, secondsLeft: state.config.turnSeconds, duration: state.config.turnSeconds },
   }
 }
 
@@ -437,7 +423,9 @@ export function nextClue(state) {
   return {
     ...state,
     clueIndex: nextIndex,
-    timer: { ...state.timer, running: false, secondsLeft: state.config.turnSeconds },
+    /* Every new clue turn opens with its clock already ticking — the local
+       table matches the online one; Pause/Resume/Reset stay available. */
+    timer: { ...state.timer, running: true, secondsLeft: state.config.turnSeconds },
   }
 }
 
@@ -656,10 +644,7 @@ export function determineWinner(state) {
   if (remainingCrew === 0 && state.players.length) {
     return {
       team: 'imposter',
-      reason:
-        totalImposters === state.players.length
-          ? 'Every single player was an imposter — there was no crew to catch anyone.'
-          : 'The last crew member is gone — the imposters have the ship.',
+      reason: totalImposters === state.players.length ? 'Every single player was an imposter — there was no crew to catch anyone.' : 'The last crew member is gone — the imposters have the ship.',
       chaos: totalImposters === state.players.length,
     }
   }
@@ -667,10 +652,7 @@ export function determineWinner(state) {
   if (totalImposters > 0 && remainingImposters === 0) {
     return {
       team: 'crew',
-      reason:
-        totalImposters > 1
-          ? `All ${totalImposters} imposters were rooted out.`
-          : 'The imposter was caught and removed — the crew takes the ship.',
+      reason: totalImposters > 1 ? `All ${totalImposters} imposters were rooted out.` : 'The imposter was caught and removed — the crew takes the ship.',
     }
   }
 
@@ -687,10 +669,7 @@ export function determineWinner(state) {
   if (remainingImposters > 0 && remainingImposters >= remainingCrew) {
     return {
       team: 'imposter',
-      reason:
-        remainingCrew === 1
-          ? 'Only two players are left — one crewmate and one imposter — and no vote can remove an imposter. The imposters take the game.'
-          : `The imposters now match the crew (${remainingImposters} vs ${remainingCrew}) — every vote can be tied and no imposter can be removed. The imposters take the game.`,
+      reason: remainingCrew === 1 ? 'Only two players are left — one crewmate and one imposter — and no vote can remove an imposter. The imposters take the game.' : `The imposters now match the crew (${remainingImposters} vs ${remainingCrew}) — every vote can be tied and no imposter can be removed. The imposters take the game.`,
       chaos: false,
     }
   }
@@ -744,9 +723,7 @@ export function submitGuess(state, guessText) {
   const base = {
     ...state,
     pendingGuess: null,
-    history: state.history.map((entry, index) =>
-      index === state.history.length - 1 ? { ...entry, guess: correct ? 'correct' : 'wrong' } : entry,
-    ),
+    history: state.history.map((entry, index) => (index === state.history.length - 1 ? { ...entry, guess: correct ? 'correct' : 'wrong' } : entry)),
   }
 
   if (correct) {
@@ -834,9 +811,7 @@ export function restoreBaseRoles(state) {
 
   return {
     ...state,
-    players: state.players.map((p) =>
-      roleByPlayer.has(p.id) ? { ...p, role: roleByPlayer.get(p.id), revealed: false } : { ...p, revealed: false },
-    ),
+    players: state.players.map((p) => (roleByPlayer.has(p.id) ? { ...p, role: roleByPlayer.get(p.id), revealed: false } : { ...p, revealed: false })),
     chaos: false,
     chaosTier: tier,
     imposterCount,
@@ -929,13 +904,7 @@ export function rosterOrder(state) {
 }
 
 /** Random flavour line for the briefing screen (no repeats within a round). */
-const BRIEF_LINES = [
-  'Say one word about the secret. Too obvious and the imposters learn it — too vague and you look guilty.',
-  'Imposters can lean on the decoy. Stay sharp.',
-  'No repeating someone else\'s clue. No spelling it out. No saying "it is a noun".',
-  'Watch the faces, not just the words.',
-  'The imposters are improvising. Pressure exposes improvisation.',
-]
+const BRIEF_LINES = ['Say one word about the secret. Too obvious and the imposters learn it — too vague and you look guilty.', 'Imposters can lean on the decoy. Stay sharp.', 'No repeating someone else\'s clue. No spelling it out. No saying "it is a noun".', 'Watch the faces, not just the words.', 'The imposters are improvising. Pressure exposes improvisation.']
 export function briefLine(state) {
   const line = BRIEF_LINES[(state.round - 1 + randomInt(BRIEF_LINES.length)) % BRIEF_LINES.length]
   if (isChaosRound(state)) {

@@ -97,9 +97,9 @@ described [below](#online-rooms-supabase-setup) — everything else works with z
 | `npm run build`                                    | Production build → `dist/` (+ `404.html`, `.nojekyll`)                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `npm run preview`                                  | Serves the built `dist/` on `0.0.0.0:4173`                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `npm run test`                                     | Everything below, in one run                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `npm run test:engine`                              | 162 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery)                                                                                                                                                                                                 |
+| `npm run test:engine`                              | 167 rule/utility tests (roles + chaos cadence and rolls, last-team-standing and the caught-imposter guess loop, no-role-leak invariants, word bank incl. hints and decoy relevance, online tally math, secret plumbing, error copy, backend config + URL recovery)                                                                                                                                                                                                 |
 | `npm run doctor`                                   | Pre-deploy audit of `dist/`: entry point, relative paths, code-split chunks, fonts, and a secrets scan                                                                                                                                                                                                                                                                                                                                                             |
-| `npm run test:ui`                                  | 143-check UI smoke test                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `npm run test:ui`                                  | 149-check UI smoke test                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `npm run test:live`                                | **23 live multiplayer join cycles + 3 no-show rescue drills** against your real Supabase project — creates rooms (including a sponsor-gated custom code: pinned exactly, refused when taken), joins 3–8 players, verifies rejoin, bad codes and closing, checks realtime delivery, proves a kick re-opens a blocked gate and that a quiet host’s room falls to an online player, then closes every room it made. Requires network access and your published config | : mounts the app in jsdom, **plays a full round, a full chaos round, then the elimination loop until one side is gone**, verifies haptics fire (and fall silent when switched off), the boot failsafe, backend connect and dialog scrolling |
 | `npm run deploy`                                   | Builds and pushes `dist/` to a `gh-pages` branch                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `node scripts/set-admin-password.mjs "new phrase"` | Rotates the BLACK BOX passphrase (prints a digest)                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -235,8 +235,8 @@ time somebody joins or leaves.
 
 ### The turn clock (host controls, everyone watches)
 
-Every clue turn **starts its timer by itself** — nobody hunts for a Start button, and each new player's
-clock is already running when their turn lands. While a turn is open the **host alone** sees the controls:
+Every clue turn **starts its timer by itself** — in online rooms _and_ on the local pass & play table —
+nobody hunts for a Start button, and each new player's clock is already running when their turn lands. While a turn is open the **host alone** sees the controls:
 
 - **⏸ Pause timer** — the remainder freezes on every phone at the same second;
 - **▶ Resume timer** — it carries on from exactly there, not a fresh full turn;
@@ -381,23 +381,35 @@ Rooms auto-expire: if the atomic RPCs are present, every write extends the room'
 
 ---
 
-## Optional: the sponsor break for custom room codes
+## The sponsor break — how the ads work
+
+The game is free and it pays for itself the honest old way: a fifteen-second **sponsor break**
+stands in front of every door into play.
+
+| You tap…                           | What happens                                        |
+| ---------------------------------- | --------------------------------------------------- |
+| **Start game** (local pass & play) | break first, then the deal                          |
+| **Create room** (online)           | break first, then the room is made                  |
+| **Join room / rejoin** (online)    | break first, then you're seated                     |
+| custom room code                   | unlocked by ANY break watched — the same one counts |
+
+While it plays: the clip runs muted (autoplay rules), the SKIP button arms only after fifteen
+seconds of actual watching, a short clip holds its last frame until the clock is up, and
+**✕ not now** cancels the tap and unlocks nothing. A completed break buys a three-minute grace
+window — retry after a typo costs a second ad, waiting for friends does not.
+
+Your eleven sponsor clips ship in `public/ads/` and are listed in `public/ads/playlist.json`;
+one is picked at random per break. Swap the files or the list any time — no rebuild, no code
+change. With an empty or unreachable playlist the plate shows its own animated _AD SPACE_
+placeholder and still runs the same clock, so the game can never be held hostage by a missing ad.
+
+### Custom room codes
 
 Creating a room normally hands out a random six-character code. An organiser who wants their
 own — `PARK99`, `MOVNIE`, anything that avoids the letters the game never uses — can type it,
-but the field is deliberately gated behind a fifteen-second **sponsor break**.
-
-To put real ads behind that gate, no code change is needed:
-
-1. Drop your 3–7 `.mp4` clips into `public/ads/`.
-2. Edit `public/ads/playlist.json` to list them: `["sponsor-one.mp4", "sponsor-two.mp4"]`.
-
-One file is picked at random per break. The clip plays muted (autoplay rules), and **Skip** only
-arms after fifteen seconds of actual watching; closing the break early unlocks nothing. With an
-empty playlist the plate shows an animated _AD SPACE_ placeholder and still runs the same clock —
-so the feature ships working today and takes your videos the moment they exist. Custom codes are
-pinned exactly as typed: if a live room already answers to the code, the other organiser is told
-to pick another, and the app never quietly swaps in a random one.
+but only after a break has been watched (see above). Codes are pinned exactly as typed: if a
+live room already answers to yours, you are told to pick another, and the app never quietly
+swaps in a random one.
 
 ## Deploying to GitHub Pages
 

@@ -12,13 +12,14 @@ import { Button } from '../ui/Button.jsx'
 import { Field, SegmentedControl, Select, Stepper } from '../ui/Controls.jsx'
 import { Badge, Glyph } from '../ui/Layout.jsx'
 import { ErrorState, InlineNotice } from '../ui/Feedback.jsx'
-import { LIMITS } from '../../data/constants.js'
+import { LIMITS, STORAGE_KEYS } from '../../data/constants.js'
 import { normalizeName, validatePlayerName, validateRoomCode } from '../../utils/validate.js'
 import { categoryOptions } from '../../lib/wordBank.js'
 import { useWordBank } from '../../context/WordBankContext.jsx'
 import { sanitizeConfig } from '../../data/defaults.js'
-import { AdBreak } from './AdBreak.jsx'
-import { filterCustomCodeInput, validateCustomRoomCode } from '../../lib/adGate.js'
+import { useSponsorGate } from '../../hooks/useSponsorGate.jsx'
+import { adGateNeedsBreak, filterCustomCodeInput, validateCustomRoomCode } from '../../lib/adGate.js'
+import { readJSON } from '../../utils/storage.js'
 
 const ONLINE_LIMITS = { MIN_PLAYERS: 3, MAX_PLAYERS: 20, MAX_IMPOSTERS: 4 }
 
@@ -44,8 +45,10 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
    */
   /* Custom room code: typed only after the 15-second sponsor break unlocks it. */
   const [customCode, setCustomCode] = useState('')
+  const sponsor = useSponsorGate()
   const [codeUnlocked, setCodeUnlocked] = useState(false)
-  const [adOpen, setAdOpen] = useState(false)
+  /* A break watched at any door unlocks this one too — the grace stamp in storage is shared. */
+  const unlocked = codeUnlocked || !adGateNeedsBreak(readJSON(STORAGE_KEYS.adWatch, null)?.at ?? null)
 
   const [config, setConfig] = useState(() => ({
     ...sanitizeConfig({
@@ -144,7 +147,7 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
       setErrors({ code: cleanCode.error })
       return
     }
-    onSubmit?.({ mode: 'join', name: cleanName, code: cleanCode.value })
+    sponsor.request(() => onSubmit?.({ mode: 'join', name: cleanName, code: cleanCode.value }))
   }
 
   const submitCreate = () => {
@@ -152,24 +155,26 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
     const cleanName = validateName()
     if (!cleanName) return
     let code = null
-    if (codeUnlocked && customCode) {
+    if (unlocked && customCode) {
       const check = validateCustomRoomCode(customCode)
       if (!check.ok) return setErrors({ custom: check.error })
       code = check.value
     }
     const category = categories.find((c) => c.id === categoryId)
-    onSubmit?.({
-      mode: 'create',
-      name: cleanName,
-      customCode: code,
-      config: {
-        ...config,
-        categoryIds: [categoryId],
-        categoryLabel: category?.name || 'Random',
-        minPlayers: ONLINE_LIMITS.MIN_PLAYERS,
-        maxPlayers: ONLINE_LIMITS.MAX_PLAYERS,
-      },
-    })
+    sponsor.request(() =>
+      onSubmit?.({
+        mode: 'create',
+        name: cleanName,
+        customCode: code,
+        config: {
+          ...config,
+          categoryIds: [categoryId],
+          categoryLabel: category?.name || 'Random',
+          minPlayers: ONLINE_LIMITS.MIN_PLAYERS,
+          maxPlayers: ONLINE_LIMITS.MAX_PLAYERS,
+        },
+      }),
+    )
   }
 
   const nearestTurn = (value) => [15, 30, 45, 60, 90].reduce((a, b) => (Math.abs(b - value) < Math.abs(a - value) ? b : a))
@@ -177,6 +182,7 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
   return (
     <div className="space-y-4">
       {backendRow}
+      {sponsor.overlay}
 
       <SegmentedControl
         options={[
@@ -217,7 +223,7 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
             {busy === 'joining' ? 'Connecting…' : 'Join room'}
           </Button>
           {lastSession?.code && (
-            <button type="button" onClick={() => onQuickJoin?.(lastSession)} className="w-full rounded-xl border border-violet-500/30 bg-black/30 px-3.5 py-2.5 text-left transition hover:border-cyan-300/45">
+            <button type="button" onClick={() => sponsor.request(() => onQuickJoin?.(lastSession))} className="w-full rounded-xl border border-violet-500/30 bg-black/30 px-3.5 py-2.5 text-left transition hover:border-cyan-300/45">
               <span className="block text-[10.5px] uppercase tracking-[.22em] text-violet-200/55">rejoin my last room</span>
               <span className="mt-0.5 block font-display text-[12.5px] tracking-[.12em] text-cyan-100">
                 {lastSession.code} · {lastSession.name}
@@ -279,14 +285,14 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="label text-[9px]">custom room code</p>
-                <p className="mt-0.5 text-[11px] leading-snug text-violet-200/55">{codeUnlocked ? 'Unlocked — type the six characters this room will answer to.' : 'Your own code, instead of a rolled one. Unlock it with a 15-second sponsor break.'}</p>
+                <p className="mt-0.5 text-[11px] leading-snug text-violet-200/55">{unlocked ? 'Unlocked — type the six characters this room will answer to.' : 'Your own code, instead of a rolled one. Unlock it with a 15-second sponsor break.'}</p>
               </div>
-              {!codeUnlocked && (
-                <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setAdOpen(true)}>
+              {!unlocked && (
+                <Button variant="ghost" size="sm" className="shrink-0" onClick={() => sponsor.request(() => setCodeUnlocked(true))}>
                   ▶ Watch ad
                 </Button>
               )}
-              {codeUnlocked && <span className="shrink-0 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 font-display text-[9px] uppercase tracking-[.18em] text-emerald-200">unlocked</span>}
+              {unlocked && <span className="shrink-0 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 font-display text-[9px] uppercase tracking-[.18em] text-emerald-200">unlocked</span>}
             </div>
             <input
               value={customCode}
@@ -294,8 +300,8 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
                 setCustomCode(filterCustomCodeInput(event.target.value))
                 setErrors((e) => ({ ...e, custom: null }))
               }}
-              disabled={!codeUnlocked}
-              placeholder={codeUnlocked ? 'e.g. PARK99' : 'locked — watch the break to type here'}
+              disabled={!unlocked}
+              placeholder={unlocked ? 'e.g. PARK99' : 'locked — watch the break to type here'}
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck="false"
@@ -311,18 +317,9 @@ export function OnlineSetup({ configured, backend = null, onConfigure = null, on
 
           {errors.form && <InlineNotice tone="error">{errors.form}</InlineNotice>}
           <Button variant="primary" fullWidth onClick={submitCreate} disabled={busy === 'creating'}>
-            {busy === 'creating' ? 'Creating room…' : codeUnlocked && customCode ? `Create room · ${customCode}` : 'Create room'}
+            {busy === 'creating' ? 'Creating room…' : unlocked && customCode ? `Create room · ${customCode}` : 'Create room'}
           </Button>
 
-          {adOpen && (
-            <AdBreak
-              onDone={() => {
-                setAdOpen(false)
-                setCodeUnlocked(true)
-              }}
-              onClose={() => setAdOpen(false)}
-            />
-          )}
           <p className="flex items-center justify-center gap-1.5 text-[11px] text-violet-200/45">
             <Glyph name="users" size={12} /> 3–20 players · every player needs their own device
           </p>

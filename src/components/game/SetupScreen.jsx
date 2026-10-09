@@ -16,10 +16,12 @@ import { categoryOptions } from '../../lib/wordBank.js'
 import { useWordBank } from '../../context/WordBankContext.jsx'
 import { nameKey, normalizeName, validatePlayerName } from '../../utils/validate.js'
 import { sanitizeConfig } from '../../data/defaults.js'
+import { useSponsorGate } from '../../hooks/useSponsorGate.jsx'
 
 const MAX_IMPOSTERS = 9
 
 export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy = false }) {
+  const sponsor = useSponsorGate()
   const { bank } = useWordBank()
   const categories = useMemo(() => categoryOptions(bank), [bank])
 
@@ -83,9 +85,11 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
   const submit = () => {
     setTouched(true)
     if (!canStart) return
-    onStart?.(
-      { ...config, playerCount: names.length, imposterCount: effectiveImposters },
-      names.map((name) => normalizeName(name)),
+    sponsor.request(() =>
+      onStart?.(
+        { ...config, playerCount: names.length, imposterCount: effectiveImposters },
+        names.map((name) => normalizeName(name)),
+      ),
     )
   }
 
@@ -120,36 +124,24 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
                 const error = touched || name.trim() ? errors[index] : ''
                 return (
                   <motion.div key={index} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.02, 0.2) }}>
-                    <Field
-                      label={`player ${String(index + 1).padStart(2, '0')}`}
-                      placeholder="Enter name"
-                      value={name}
-                      maxLength={LIMITS.NAME_MAX}
-                      autoComplete="off"
-                      error={error || undefined}
-                      onChange={(event) => setNames((current) => current.map((n, i) => (i === index ? normalizeName(event.target.value) : n)))}
-                    />
+                    <Field label={`player ${String(index + 1).padStart(2, '0')}`} placeholder="Enter name" value={name} maxLength={LIMITS.NAME_MAX} autoComplete="off" error={error || undefined} onChange={(event) => setNames((current) => current.map((n, i) => (i === index ? normalizeName(event.target.value) : n)))} />
                   </motion.div>
                 )
               })}
             </div>
 
-            {hasErrors && touched && <InlineNotice tone="error" className="mt-3">Duplicate or invalid names block the start — every player needs a unique name.</InlineNotice>}
+            {hasErrors && touched && (
+              <InlineNotice tone="error" className="mt-3">
+                Duplicate or invalid names block the start — every player needs a unique name.
+              </InlineNotice>
+            )}
           </PanelBody>
         </Panel>
 
         <Panel>
           <PanelHeader title="RULES" subtitle="Sensible defaults are already set" />
           <PanelBody className="space-y-4">
-            <Stepper
-              label="Imposters"
-              hint={chaos ? 'Chaos decides this fresh every round' : `Maximum ${maxImposters} with ${names.length} players`}
-              value={chaos ? 1 : effectiveImposters}
-              min={1}
-              max={Math.min(maxImposters, MAX_IMPOSTERS)}
-              disabled={chaos}
-              onChange={(value) => setConfig((current) => ({ ...current, imposterCount: value }))}
-            />
+            <Stepper label="Imposters" hint={chaos ? 'Chaos decides this fresh every round' : `Maximum ${maxImposters} with ${names.length} players`} value={chaos ? 1 : effectiveImposters} min={1} max={Math.min(maxImposters, MAX_IMPOSTERS)} disabled={chaos} onChange={(value) => setConfig((current) => ({ ...current, imposterCount: value }))} />
 
             <div>
               <p className="label mb-2">categories</p>
@@ -157,17 +149,7 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
                 {categories.map((category) => {
                   const active = config.categoryIds.includes(category.id)
                   return (
-                    <button
-                      key={category.id}
-                      type="button"
-                      onClick={() => toggleCategory(category.id)}
-                      aria-pressed={active}
-                      className={`rounded-full border px-3 py-1.5 text-[11.5px] transition ${
-                        active
-                          ? 'border-cyan-300/65 bg-cyan-500/15 text-cyan-50 shadow-neon-cyan'
-                          : 'border-violet-400/25 bg-black/30 text-violet-200/65 hover:border-violet-300/45'
-                      }`}
-                    >
+                    <button key={category.id} type="button" onClick={() => toggleCategory(category.id)} aria-pressed={active} className={`rounded-full border px-3 py-1.5 text-[11.5px] transition ${active ? 'border-cyan-300/65 bg-cyan-500/15 text-cyan-50 shadow-neon-cyan' : 'border-violet-400/25 bg-black/30 text-violet-200/65 hover:border-violet-300/45'}`}>
                       {category.name}
                       <span className="ml-1.5 font-mono text-[10px] opacity-60">{category.count}</span>
                     </button>
@@ -191,12 +173,7 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
 
             <div>
               <p className="label mb-2">turn length</p>
-              <SegmentedControl
-                size="sm"
-                value={config.turnSeconds}
-                onChange={(value) => setConfig((current) => ({ ...current, turnSeconds: value }))}
-                options={[15, 30, 45, 60, 90].map((seconds) => ({ value: seconds, label: `${seconds}s` }))}
-              />
+              <SegmentedControl size="sm" value={config.turnSeconds} onChange={(value) => setConfig((current) => ({ ...current, turnSeconds: value }))} options={[15, 30, 45, 60, 90].map((seconds) => ({ value: seconds, label: `${seconds}s` }))} />
             </div>
 
             <div>
@@ -208,13 +185,7 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
                     type="button"
                     onClick={() => setConfig((current) => ({ ...current, mode: mode.id }))}
                     aria-pressed={config.mode === mode.id}
-                    className={`rounded-xl border px-3.5 py-3 text-left transition ${
-                      config.mode === mode.id
-                        ? mode.id === 'chaos'
-                          ? 'border-magenta-neon/60 bg-fuchsia-500/12 shadow-neon-magenta'
-                          : 'border-cyan-300/60 bg-cyan-500/12 shadow-neon-cyan'
-                        : 'border-violet-400/25 bg-black/30 hover:border-violet-300/45'
-                    }`}
+                    className={`rounded-xl border px-3.5 py-3 text-left transition ${config.mode === mode.id ? (mode.id === 'chaos' ? 'border-magenta-neon/60 bg-fuchsia-500/12 shadow-neon-magenta' : 'border-cyan-300/60 bg-cyan-500/12 shadow-neon-cyan') : 'border-violet-400/25 bg-black/30 hover:border-violet-300/45'}`}
                   >
                     <span className="font-display text-[12px] tracking-[.12em] text-violet-50">{mode.label}</span>
                     <span className="mt-1 block text-[11.5px] leading-snug text-violet-200/60">{mode.short}</span>
@@ -231,19 +202,10 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
                 <span className="mt-1 block text-[11.5px] leading-snug text-violet-200/60">{WIN_RULES[0].short}</span>
               </div>
               <p className="mt-2 text-[11.5px] leading-relaxed text-violet-200/50">{WIN_RULES[0].description}</p>
-              {chaos && (
-                <p className="mt-1.5 text-[11.5px] leading-relaxed text-cyan-200/75">
-                  Chaos overrides the imposter count: one round in every few re-rolls who is an imposter, and that round may deal nobody an imposter card or hand one to the whole table.
-                </p>
-              )}
+              {chaos && <p className="mt-1.5 text-[11.5px] leading-relaxed text-cyan-200/75">Chaos overrides the imposter count: one round in every few re-rolls who is an imposter, and that round may deal nobody an imposter card or hand one to the whole table.</p>}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowAdvanced((value) => !value)}
-              className="w-full rounded-lg border border-violet-400/25 bg-black/25 px-3 py-2 text-left text-[11.5px] text-violet-200/70 transition hover:border-cyan-300/40"
-              aria-expanded={showAdvanced}
-            >
+            <button type="button" onClick={() => setShowAdvanced((value) => !value)} className="w-full rounded-lg border border-violet-400/25 bg-black/25 px-3 py-2 text-left text-[11.5px] text-violet-200/70 transition hover:border-cyan-300/40" aria-expanded={showAdvanced}>
               {showAdvanced ? '− Hide advanced options' : '+ Advanced options'}
             </button>
 
@@ -285,14 +247,15 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
         <div className="glass-strong clip-hud flex flex-col gap-2 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="font-display text-[11.5px] tracking-[.14em] text-violet-50">
-              {names.length} PLAYERS ·{' '}
-              {chaos ? 'CHAOS IMPOSTERS' : `${effectiveImposters} IMPOSTER${effectiveImposters > 1 ? 'S' : ''}`} ·{' '}
-              {config.turnSeconds}s
+              {names.length} PLAYERS · {chaos ? 'CHAOS IMPOSTERS' : `${effectiveImposters} IMPOSTER${effectiveImposters > 1 ? 'S' : ''}`} · {config.turnSeconds}s
             </p>
             <p className="mt-0.5 truncate text-[11px] text-violet-200/55">
               {config.categoryIds.includes('random')
                 ? 'All categories'
-                : config.categoryIds.map((id) => categories.find((c) => c.id === id)?.name).filter(Boolean).join(', ')}
+                : config.categoryIds
+                    .map((id) => categories.find((c) => c.id === id)?.name)
+                    .filter(Boolean)
+                    .join(', ')}
             </p>
           </div>
           <Button variant="primary" onClick={submit} disabled={!canStart || busy} className="sm:w-auto" fullWidth>
@@ -300,6 +263,7 @@ export function SetupScreen({ onStart, onBack, initialConfig, initialNames, busy
           </Button>
         </div>
       </div>
+      {sponsor.overlay}
     </ScreenShell>
   )
 }

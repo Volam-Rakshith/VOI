@@ -1,7 +1,7 @@
 {
   "name": "imposter-by-vr-developments",
   "private": true,
-  "version": "1.0.17",
+  "version": "1.0.20",
   "description": "IMPOSTER - a cyberpunk social deduction party game by VR DEVELOPMENTS. Static, GitHub Pages ready.",
   "type": "module",
   "scripts": {

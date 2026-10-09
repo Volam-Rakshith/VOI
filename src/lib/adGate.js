@@ -18,6 +18,22 @@ import { validateRoomCode } from '../utils/validate.js'
 /** Seconds of watching before the skip button arms. */
 export const AD_SKIP_AFTER_S = 15
 
+/**
+ * Grace after a COMPLETED break: another door opening within this window does
+ * not demand a second ad. It exists so a mistyped code or a quick retry is
+ * never punished twice — not so the ad can be dodged by idling; every new
+ * game session pays the break again once the window closes.
+ */
+export const AD_GRACE_MS = 180000
+
+/** True when a sponsor break must play before this tap is honoured. */
+export function adGateNeedsBreak(lastWatchedAt, now = Date.now(), graceMs = AD_GRACE_MS) {
+  const at = Number(lastWatchedAt)
+  if (!Number.isFinite(at) || at <= 0) return true
+  const age = now - at
+  return !(age >= 0 && age < graceMs)
+}
+
 /** Playlist the ad player reads at run time — drop new entries here to rotate ads. */
 export const AD_PLAYLIST_PATH = 'ads/playlist.json'
 
@@ -57,4 +73,4 @@ export function adSkipState(secondsWatched) {
   }
 }
 
-export default { AD_SKIP_AFTER_S, AD_PLAYLIST_PATH, filterCustomCodeInput, validateCustomRoomCode, adSkipState }
+export default { AD_SKIP_AFTER_S, AD_GRACE_MS, AD_PLAYLIST_PATH, filterCustomCodeInput, validateCustomRoomCode, adSkipState, adGateNeedsBreak }

@@ -151,6 +151,8 @@ export function OnlineGamePhases({ online, onExit }) {
         break
       case ONLINE_PHASES.CLUES:
         haptic('turnChange', vibrate)
+        /* The round's first player also holds the myTurn knock — one buzz per moment, never two at the same instant. */
+        hapticTurnRef.current = `${room.game.round || 1}:0`
         break
       case ONLINE_PHASES.VOTING:
         haptic('votingStart', vibrate)
@@ -409,8 +411,9 @@ export function OnlineGamePhases({ online, onExit }) {
     const clock = room.game.timer
     const stance = timerStance(clock, room.config.turnSeconds)
     const running = stance === 'running'
-    const secondsLeft = clock ? sharedTimerRemaining(clock) : room.config.turnSeconds
-    const ringSeconds = stance === 'stopped' ? room.config.turnSeconds : secondsLeft
+    const alignedRemaining = Math.max(0, Math.ceil(clock ? sharedTimerRemaining(clock) : room.config.turnSeconds))
+    const secondsLeft = alignedRemaining
+    const ringSeconds = stance === 'stopped' ? room.config.turnSeconds : alignedRemaining
     const ringLabel = running ? 'seconds' : stance === 'paused' ? 'paused' : stance === 'stopped' ? 'no limit' : 'ready'
     return (
       <>

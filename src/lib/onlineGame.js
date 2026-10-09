@@ -271,11 +271,28 @@ export function turnPlayer(room) {
   return room.players.find((p) => p.id === id) || null
 }
 
-/** Live countdown for a shared timer payload. */
-export function timerRemaining(timer) {
+/**
+ * Live countdown for a shared timer payload.
+ *
+ * The stamp is written by ONE device and read by EVERY device — phones at a
+ * party have clock skew, and an auto-started clock means this runs on every
+ * single turn now. So: a writer clock running ahead can never inflate the
+ * countdown past its duration (a stamp from the future is clamped to "just
+ * started"), and when the hook hands us `observedAt` — the moment THIS device
+ * saw the timer start — a plainly untrustworthy writer clock (more than the
+ * whole duration off) is discarded in favour of the observer's own clock.
+ * Healthy clocks (skew under a couple of seconds) keep using the writer's
+ * stamp exactly, so behaviour is unchanged in the normal case.
+ */
+export function timerRemaining(timer, now = Date.now(), observedAt = null) {
   if (!timer?.running || !timer.startedAt) return timer?.duration ?? 0
-  const elapsed = (Date.now() - timer.startedAt) / 1000
-  return Math.max(0, Math.round((timer.duration ?? 0) - elapsed))
+  const duration = Math.max(0, timer.duration ?? 0)
+  const writerElapsed = (now - timer.startedAt) / 1000
+  let elapsed = Math.max(0, writerElapsed)
+  if (observedAt !== null && (writerElapsed < 0 || writerElapsed > duration + 2)) {
+    elapsed = Math.max(0, (now - observedAt) / 1000)
+  }
+  return Math.max(0, Math.round(duration - elapsed))
 }
 
 /**

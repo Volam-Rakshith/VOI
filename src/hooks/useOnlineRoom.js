@@ -38,7 +38,7 @@ import {
   writeSecrets,
 } from '../lib/onlineService.js'
 import { assignOpeningRoles, assignRolesFor, isChaosMode, isChaosRound, scheduleNextChaosRound } from '../lib/gameEngine.js'
-import { HOST_VANISH_MS, applyTimerAction, buildClueOrder, clueOrderFor, computeResult, freshTimer, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, settleWinner, turnPlayer, vanishSuccessor, voteProgress } from '../lib/onlineGame.js'
+import { HOST_VANISH_MS, applyTimerAction, buildClueOrder, clueOrderFor, computeResult, freshTimer, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, settleWinner, timerRemaining as sharedTimerRemaining, turnPlayer, vanishSuccessor, voteProgress } from '../lib/onlineGame.js'
 import { normalizeRoom } from '../lib/onlineService.js'
 import { reloadRuntimeFile, subscribeToBackend } from '../lib/runtimeConfig.js'
 import { readJSON, readSession, remove, removeSession, writeJSON, writeSession } from '../utils/storage.js'
@@ -152,6 +152,19 @@ export function useOnlineRoom(bank) {
   /* ------------------------------------------------------------------ */
   /* Session lifecycle                                                   */
   /* ------------------------------------------------------------------ */
+  /*
+   * A CONFIRMED-dead room (row deleted by the host close, expiry, or a
+   * rejoin that found nothing) also drops the "last room" note — otherwise
+   * the rejoin card keeps offering a table that can never answer. Getting
+   * kicked or walking away on purpose deliberately KEEPS the note: that room
+   * is still alive and still has a door back in.
+   */
+  const forgetRoom = useCallback(() => {
+    const { code } = sessionRef.current
+    const rec = readJSON(STORAGE_KEYS.lastRoom, null)
+    if (rec?.code && (!code || rec.code === code)) remove(STORAGE_KEYS.lastRoom)
+  }, [])
+
   const clearSession = useCallback(() => {
     remove(STORAGE_KEYS.session)
     removeSession(STORAGE_KEYS.seat)
@@ -169,6 +182,7 @@ export function useOnlineRoom(bank) {
   const applyRoom = useCallback(
     (next) => {
       setRoom(next)
+      if (next?.status === ROOM_STATUS.TERMINATED) forgetRoom()
       const me = sessionRef.current.playerId
       if (next && me && Array.isArray(next.players) && next.players.length && !next.players.some((p) => p.id === me) && next.status !== ROOM_STATUS.TERMINATED) {
         clearSession()
@@ -465,6 +479,7 @@ export function useOnlineRoom(bank) {
         }
       })
       .catch((error) => {
+        if (error?.code === 'NOT_FOUND' || error?.code === 'EXPIRED' || error?.code === 'TERMINATED') forgetRoom()
         setConnection({
           state: 'error',
           error: friendlyRoomError(error),
@@ -484,6 +499,7 @@ export function useOnlineRoom(bank) {
         setConnection((c) => (c.state === 'reconnecting' ? { state: 'connected', error: null, attempt: 0 } : c))
       } catch (error) {
         if (error?.code === 'NOT_FOUND' || error?.code === 'EXPIRED' || error?.code === 'TERMINATED') {
+          forgetRoom()
           setConnection({
             state: 'error',
             error: friendlyRoomError(error),
@@ -1344,10 +1360,12 @@ export function useOnlineRoom(bank) {
     } catch {
       /* best effort */
     }
+    /* The row is gone (or about to be) — nobody should be offered it back. */
+    forgetRoom()
     unsubscribeRef.current?.()
     unsubscribeRef.current = null
     clearSession()
-  }, [clearSession])
+  }, [clearSession, forgetRoom])
 
   /** Host: tweak the room configuration from the lobby. */
   const updateConfig = useCallback(
@@ -1417,10 +1435,24 @@ export function useOnlineRoom(bank) {
     return () => clearInterval(id)
   }, [sharedTimerRunning, room?.game?.timer?.startedAt])
 
+  /*
+   * Remember, per device, when WE first saw this clock start. The payload
+   * timestamp still decides the number while the writer's clock looks sane;
+   * when it plainly does not, our own clock carries the countdown instead.
+   */
+  const observedClock = useRef({ sig: '', at: 0 })
+  useEffect(() => {
+    const timer = room?.game?.timer
+    if (!timer?.running || !timer.startedAt) return
+    const sig = `${timer.startedAt}:${timer.duration ?? 0}`
+    if (observedClock.current.sig !== sig) observedClock.current = { sig, at: Date.now() }
+  }, [room?.game?.timer])
   const remaining = useMemo(() => {
     const timer = room?.game?.timer
     if (!timer?.running || !timer.startedAt) return null
-    return Math.max(0, (timer.duration ?? 0) - (clock - timer.startedAt) / 1000)
+    const sig = `${timer.startedAt}:${timer.duration ?? 0}`
+    const seenAt = observedClock.current.sig === sig ? observedClock.current.at : null
+    return sharedTimerRemaining(timer, Date.now(), seenAt)
   }, [room?.game?.timer, clock])
 
   useEffect(() => {

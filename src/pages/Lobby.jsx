@@ -16,6 +16,7 @@ import { RoomCodeCard } from '../components/lobby/RoomCodeCard.jsx'
 import { useRouter } from '../lib/router.jsx'
 import { useToast } from '../context/ToastContext.jsx'
 import { normalizeName, validatePlayerName, validateRoomCode } from '../utils/validate.js'
+import { useSponsorGate } from '../hooks/useSponsorGate.jsx'
 
 export function Lobby({ onNavigate }) {
   const { params } = useRouter()
@@ -24,10 +25,13 @@ export function Lobby({ onNavigate }) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(false)
+  /* The invite link is a join door too — same fifteen honest seconds. */
+  const sponsor = useSponsorGate()
 
   const renderSetup = useCallback(
     ({ configured, busy, joinRoom, onCheckConfig, onConfigure }) => (
       <ScreenShell>
+        {sponsor.overlay}
         <ScreenHeader title={`Join ${code || 'a room'}`} eyebrow="online room" onBack={() => onNavigate(ROUTES.online)} />
         <div className="shell-narrow flex-1 space-y-4 pb-6">
           {code ? <RoomCodeCard code={code} compact /> : <InlineNotice tone="error">That link is missing a room code.</InlineNotice>}
@@ -52,8 +56,7 @@ export function Lobby({ onNavigate }) {
               />
               {!configured && (
                 <InlineNotice tone="warn">
-                  <strong className="font-bold">Waiting for the room server.</strong> The organiser publishes it once,
-                  for everyone — you never paste anything. It is picked up automatically the moment it is ready.
+                  <strong className="font-bold">Waiting for the room server.</strong> The organiser publishes it once, for everyone — you never paste anything. It is picked up automatically the moment it is ready.
                   <div className="mt-2.5 flex flex-wrap items-center gap-2">
                     <Button
                       variant="primary"
@@ -86,11 +89,13 @@ export function Lobby({ onNavigate }) {
                   const codeCheck = validateRoomCode(code)
                   if (!check.ok) return setError(check.error)
                   if (!codeCheck.ok) return setError(codeCheck.error)
-                  const result = await joinRoom(check.value, codeCheck.value)
-                  if (!result?.ok) {
-                    setError('')
-                    toast.error(result?.error || 'Could not join that room')
-                  }
+                  sponsor.request(async () => {
+                    const result = await joinRoom(check.value, codeCheck.value)
+                    if (!result?.ok) {
+                      setError('')
+                      toast.error(result?.error || 'Could not join that room')
+                    }
+                  })
                 }}
               >
                 {busy === 'joining' ? 'Connecting…' : 'Join room'}
@@ -100,7 +105,7 @@ export function Lobby({ onNavigate }) {
         </div>
       </ScreenShell>
     ),
-    [code, name, error, checking, onNavigate, toast],
+    [code, name, error, checking, onNavigate, toast, sponsor],
   )
 
   return <OnlineSession renderSetup={renderSetup} onExit={() => onNavigate(ROUTES.online)} />
