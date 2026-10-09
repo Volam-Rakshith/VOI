@@ -1387,6 +1387,65 @@ test('the room tells a removed player why their table vanished', async () => {
 })
 
 /* ================================================================== */
+group('TURN TIMER: AUTO-START & HOST CONTROLS')
+
+test('the turn clock auto-starts and survives a full stance round-trip', () => {
+  const fresh = onlineGame.freshTimer(30)
+  assert.equal(fresh.running, true, 'a fresh clock is already running — no Start button to find')
+  assert.equal(onlineGame.timerStance(fresh, 30), 'running')
+  const paused = onlineGame.applyTimerAction(fresh, 'pause', 30)
+  assert.equal(paused.running, false)
+  assert.equal(paused.paused, true, 'the freeze is marked, never inferred from the number')
+  assert.ok(paused.duration >= 28 && paused.duration <= 30, `pause freezes the remainder, saw ${paused.duration}`)
+  assert.equal(onlineGame.timerStance(paused, 30), 'paused')
+  const resumed = onlineGame.applyTimerAction({ running: false, duration: 12, startedAt: null, paused: true }, 'resume', 30)
+  assert.equal(resumed.running, true)
+  assert.equal(resumed.duration, 12, 'resume carries on from the freeze — it does not hand back a fresh 30')
+  assert.ok(Number.isFinite(resumed.startedAt), 'and the shared countdown restarts from now')
+  const stopped = onlineGame.applyTimerAction(resumed, 'stop', 30)
+  assert.equal(stopped.running, false)
+  assert.equal(stopped.duration, 0, 'stopped means no limit left on this turn')
+  assert.equal(onlineGame.timerStance(stopped, 30), 'stopped')
+  const restarted = onlineGame.applyTimerAction(stopped, 'resume', 30)
+  assert.equal(restarted.running, true)
+  assert.equal(restarted.duration, 30, 'restart after a stop gives the full turn again')
+  assert.equal(onlineGame.applyTimerAction(paused, 'pause', 30), paused, 'pause on a paused clock is a no-op')
+  assert.equal(onlineGame.applyTimerAction(fresh, 'politeness', 30), fresh, 'unknown actions change nothing')
+  assert.equal(onlineGame.timerStance(null, 30), 'ready', 'no clock at all reads as a waiting full one')
+})
+
+test('the hook auto-starts every turn and gates the controls to the host', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hook = readFileSync('src/hooks/useOnlineRoom.js', 'utf8')
+  assert.equal(hook.split('timer: freshTimer(room.config.turnSeconds)').length - 1, 2, 'the round open AND each advancing turn start the clock')
+  assert.ok(hook.includes('const timerControl = useCallback'), 'one action drives the clock')
+  assert.ok(hook.slice(hook.indexOf('const timerControl'), hook.indexOf('const timerControl') + 700).includes('if (!isHostDriver(room, playerId)) return'), 'the guest call is a hard no — not just a hidden button')
+  assert.ok(hook.includes('timerControl,') && !hook.includes('startTimer,') && !hook.includes('stopTimer,'), 'the old per-player surface is gone')
+})
+
+test('guests watch the ring while only the host sees the buttons', async () => {
+  const { readFileSync } = await import('node:fs')
+  const phases = readFileSync('src/components/online/OnlineGamePhases.jsx', 'utf8')
+  const clues = phases.slice(phases.indexOf("view?.screen === 'clues'"))
+  const hostRow = clues.slice(0, clues.indexOf('</CountdownRing>') + 4000)
+  assert.ok(hostRow.includes('isHost &&') && hostRow.includes("actions.timerControl('pause')"), 'controls live behind the host gate')
+  assert.ok(!clues.slice(0, 6000).includes('actions.startTimer') && !clues.slice(0, 6000).includes('actions.stopTimer'), 'no start/stop anywhere in the player row')
+  assert.ok(phases.includes("'no limit'") && phases.includes("'paused'"), 'the ring tells everyone which stance they are looking at')
+  assert.ok(phases.includes("Each turn's timer starts itself"), 'and the briefing says so too')
+})
+
+test('the turn buzz is a moment, not a role — one pattern, once per turn', async () => {
+  const { readFileSync } = await import('node:fs')
+  const haptics = readFileSync('src/lib/haptics.js', 'utf8')
+  assert.ok(/myTurn: \[16, 70, 16\]/.test(haptics), 'a two-tap knock ships with the cue table')
+  const phases = readFileSync('src/components/online/OnlineGamePhases.jsx', 'utf8')
+  const effect = phases.slice(phases.indexOf('hapticTurnRef.current = key') - 420, phases.indexOf('hapticTurnRef.current = key') + 120)
+  assert.ok(effect.includes('view?.isMyTurn') && effect.includes('ONLINE_PHASES.CLUES'), 'fires only when a clue turn lands on you')
+  assert.ok(effect.includes("haptic('myTurn', vibrate)"), 'the one shared pattern — nothing role-specific')
+  assert.ok(effect.includes('hapticTurnRef.current === key'), 'and deduped per round+index so it knocks once')
+})
+
+/* ================================================================== */
 group('SPONSOR BREAK & CUSTOM CODES')
 
 test('the custom-code filter and validator mirror the generated-code rules', () => {

@@ -23,6 +23,7 @@ export const HAPTIC = {
   /* Round flow ------------------------------------------------------------ */
   roundStart: [10, 45, 14],
   turnChange: 10,
+  myTurn: [16, 70, 16], // a two-tap knock — "your clue turn" on any phone, any role
   timerWarning: [8, 60, 8], // 10s left
   timerCritical: [14, 45, 14, 45, 14], // 5s left
   timerEnd: [40, 70, 40], // time up
@@ -57,9 +58,7 @@ export function haptic(name, vibrate, scale = 1) {
     vibrate(pattern)
     return true
   }
-  const scaled = Array.isArray(pattern)
-    ? pattern.map((value) => Math.max(1, Math.round(value * scale)))
-    : Math.max(1, Math.round(pattern * scale))
+  const scaled = Array.isArray(pattern) ? pattern.map((value) => Math.max(1, Math.round(value * scale))) : Math.max(1, Math.round(pattern * scale))
   vibrate(scaled)
   return true
 }

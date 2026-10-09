@@ -28,7 +28,7 @@ Optional but recommended before committing:
 
 ```bash
 npm run build         # → dist/ with index.html, 404.html, .nojekyll, sw.js, icons
-npm run test:engine   # 158 rule/utility tests → expect "158 passed, 0 failed"
+npm run test:engine   # 162 rule/utility tests → expect "162 passed, 0 failed"
 npm run test:ui       # 143 UI checks
 npm run test:live     # 22 multiplayer join cycles + 3 no-show rescue drills against the live Supabase project (needs network) (a full round, the elimination loop to a winner, a chaos round, haptics, the failsafe, backend setup and scrolling)
 npm run doctor        # audits that build: entry point, paths, chunks, fonts, secrets
@@ -124,13 +124,13 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 - [ ] Host taps **Close room** → confirm → every other device shows "the host closed this room" with a way out
 - [ ] That closed code can no longer be joined ("that room is closed")
 - [ ] BLACK BOX → ROOM MANAGEMENT no longer lists the closed room
-- [ ] Leave a room idle for three hours (or press *Sweep expired*) and it disappears from the list
+- [ ] Leave a room idle for three hours (or press _Sweep expired_) and it disappears from the list
 
 ## 2d. One-time setup for everyone
 
 - [ ] BLACK BOX → BACKEND shows a **Copy runtime-config.json** box with your values in it
 - [ ] Paste that file into `public/runtime-config.json`, push, then open the site in a private window
-- [ ] The site connects itself — no *Connect a backend* prompt, nothing to paste
+- [ ] The site connects itself — no _Connect a backend_ prompt, nothing to paste
 - [ ] On a device where the file is missing the prompt still appears, and saving there still works
 
 ## 3. Mobile feel (do this on a real phone if possible)
@@ -211,7 +211,7 @@ npm run doctor        # audits that build: entry point, paths, chunks, fonts, se
 ## 7. Deployment
 
 **Read this before debugging a blank page:** Pages has two deploy mechanisms. If **Settings → Pages →
-Source** is *Deploy from a branch → /(root)* while the workflow also runs, the branch publisher wins
+Source** is _Deploy from a branch → /(root)_ while the workflow also runs, the branch publisher wins
 on every push and serves your **source tree**. The app then dies on `/src/main.jsx` (browsers refuse
 `.jsx`). One-line check — if this returns 200, you are serving source:
 

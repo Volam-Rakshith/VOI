@@ -38,7 +38,7 @@ import {
   writeSecrets,
 } from '../lib/onlineService.js'
 import { assignOpeningRoles, assignRolesFor, isChaosMode, isChaosRound, scheduleNextChaosRound } from '../lib/gameEngine.js'
-import { HOST_VANISH_MS, buildClueOrder, clueOrderFor, computeResult, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, settleWinner, turnPlayer, vanishSuccessor, voteProgress } from '../lib/onlineGame.js'
+import { HOST_VANISH_MS, applyTimerAction, buildClueOrder, clueOrderFor, computeResult, freshTimer, isHostDriver, phaseView, publicResult, resolveGuess, revealProgress, settleWinner, turnPlayer, vanishSuccessor, voteProgress } from '../lib/onlineGame.js'
 import { normalizeRoom } from '../lib/onlineService.js'
 import { reloadRuntimeFile, subscribeToBackend } from '../lib/runtimeConfig.js'
 import { readJSON, readSession, remove, removeSession, writeJSON, writeSession } from '../utils/storage.js'
@@ -627,38 +627,27 @@ export function useOnlineRoom(bank) {
     }
   }, [room, applyRoom])
 
-  const startTimer = useCallback(async () => {
-    const { code } = sessionRef.current
-    if (!code || !room?.game) return
-    const duration = room.config.turnSeconds
-    await patchRoom({
-      code,
-      patch: {
-        game: {
-          ...room.game,
-          timer: { running: true, duration, startedAt: Date.now() },
-        },
-      },
-    }).then(({ room: updated }) => updated && applyRoom(updated))
-  }, [room, applyRoom])
-
-  const stopTimer = useCallback(async () => {
-    const { code } = sessionRef.current
-    if (!code || !room?.game) return
-    await patchRoom({
-      code,
-      patch: {
-        game: {
-          ...room.game,
-          timer: {
-            running: false,
-            duration: room.config.turnSeconds,
-            startedAt: null,
-          },
-        },
-      },
-    }).then(({ room: updated }) => updated && applyRoom(updated))
-  }, [room, applyRoom])
+  /**
+   * Host-only clock control. The timer auto-starts on every clue turn, so the
+   * table rarely touches this — but when a question needs air, the host can
+   * pause (the remainder freezes for everyone), resume from exactly there, or
+   * stop the clock for the rest of the turn. Guests have no controls on
+   * purpose: they just watch the same ring.
+   */
+  const timerControl = useCallback(
+    async (action) => {
+      const { code, playerId } = sessionRef.current
+      if (!code || !room?.game) return
+      if (!isHostDriver(room, playerId)) return
+      const timer = applyTimerAction(room.game.timer, action, room.config.turnSeconds)
+      const { room: updated } = await patchRoom({
+        code,
+        patch: { game: { ...room.game, timer } },
+      })
+      if (updated) applyRoom(updated)
+    },
+    [room, applyRoom],
+  )
 
   /** Current turn player (or the host driver) advances to the next clue. */
   const nextClue = useCallback(async () => {
@@ -690,11 +679,8 @@ export function useOnlineRoom(bank) {
           ...room.game,
           clueIndex: nextIndex,
           turnPlayerId: order[nextIndex],
-          timer: {
-            running: false,
-            duration: room.config.turnSeconds,
-            startedAt: null,
-          },
+          /* The next player's clock is already running when their turn lands. */
+          timer: freshTimer(room.config.turnSeconds),
         },
       },
     }).then(({ room: updated }) => updated && applyRoom(updated))
@@ -1057,11 +1043,7 @@ export function useOnlineRoom(bank) {
           clueOrder: order,
           clueIndex: 0,
           turnPlayerId: order[0],
-          timer: {
-            running: false,
-            duration: room.config.turnSeconds,
-            startedAt: null,
-          },
+          timer: freshTimer(room.config.turnSeconds),
         },
       },
     })
@@ -1514,8 +1496,7 @@ export function useOnlineRoom(bank) {
       removePlayer,
       setReady,
       markCardSeen,
-      startTimer,
-      stopTimer,
+      timerControl,
       nextClue,
       beginClues,
       submitVote,

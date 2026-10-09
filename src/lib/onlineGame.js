@@ -278,6 +278,48 @@ export function timerRemaining(timer) {
   return Math.max(0, Math.round((timer.duration ?? 0) - elapsed))
 }
 
+/**
+ * Turn clocks auto-start: every clue turn opens with a fresh, running timer so
+ * nobody has to hunt for a Start button. The host's controls then move the
+ * same clock between four stances — running, paused (frozen remainder), ready
+ * (a full clock waiting), and stopped (no limit for the rest of this turn).
+ */
+export function freshTimer(duration) {
+  const full = Math.max(1, Number(duration) || 30)
+  return { running: true, duration: full, startedAt: Date.now() }
+}
+
+export function timerStance(timer, turnSeconds) {
+  if (timer?.running && timer.startedAt) return 'running'
+  if (!timer) return 'ready'
+  const full = Math.max(1, Number(turnSeconds) || 30)
+  const frozen = timer?.duration ?? 0
+  if (frozen <= 0) return 'stopped'
+  /* `paused` is a flag, not a guess from the number: pausing a heartbeat after
+     a turn opens freezes a full clock, and "a full frozen clock" would
+     otherwise be indistinguishable from "nobody has started it". */
+  return timer.paused || frozen < full ? 'paused' : 'ready'
+}
+
+/** The one place the pause / resume / stop rules live — host action dispatch. */
+export function applyTimerAction(timer, action, turnSeconds) {
+  const full = Math.max(1, Number(turnSeconds) || 30)
+  const stance = timerStance(timer, full)
+  switch (action) {
+    case 'pause':
+      /* Freeze what is left; resume carries on from exactly there. */
+      return stance === 'running' ? { running: false, duration: timerRemaining(timer), startedAt: null, paused: true } : timer
+    case 'stop':
+      /* The rest of this turn runs open-ended — the next turn auto-starts. */
+      return { running: false, duration: 0, startedAt: null }
+    case 'resume':
+      if (stance === 'paused') return { running: true, duration: Math.max(1, timerRemaining(timer)), startedAt: Date.now() }
+      return freshTimer(full)
+    default:
+      return timer
+  }
+}
+
 /** Fresh clue order for a round (alive players only). */
 export const buildClueOrder = (aliveIds) => shuffle(aliveIds)
 

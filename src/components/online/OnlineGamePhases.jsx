@@ -20,7 +20,7 @@ import { haptic } from '../../lib/haptics.js'
 import { ConnectionBanner } from './ConnectionBanner.jsx'
 import { useSettings } from '../../context/SettingsContext.jsx'
 import { playSfx } from '../../lib/sound.js'
-import { driverFor, isPlayerOnline, roomAlive } from '../../lib/onlineGame.js'
+import { driverFor, isPlayerOnline, roomAlive, timerRemaining as sharedTimerRemaining, timerStance } from '../../lib/onlineGame.js'
 import { voteOutcomeLine } from '../../lib/gameEngine.js'
 
 /* ------------------------------------------------------------------ */
@@ -101,12 +101,13 @@ function GuessPanel({ pending, waiting, submitted, onGuess }) {
 }
 
 export function OnlineGamePhases({ online, onExit }) {
-  const { room, view, session, actions, connection, busy, timerRemaining } = online
+  const { room, view, session, actions, connection, busy } = online
   const { settings, vibrate } = useSettings()
   const [confirm, setConfirm] = useState(null)
   const [cardFlipped, setCardFlipped] = useState(false)
   const [seen, setSeen] = useState(false)
   const hapticPhaseRef = useRef('')
+  const hapticTurnRef = useRef('')
 
   const alive = useMemo(() => roomAlive(room), [room])
   const isHost = view?.isHost
@@ -164,6 +165,18 @@ export function OnlineGamePhases({ online, onExit }) {
         break
     }
   }, [room.game?.phase, room.game?.round, room.config?.mode, vibrate])
+
+  /*
+   * "Your turn" knock — fires once when a clue turn lands on you, from the
+   * moment itself, never from a role: every player gets the identical buzz.
+   */
+  useEffect(() => {
+    if (!view?.isMyTurn || room.game?.phase !== ONLINE_PHASES.CLUES) return
+    const key = `${room.game.round || 1}:${room.game.clueIndex ?? 0}`
+    if (hapticTurnRef.current === key) return
+    hapticTurnRef.current = key
+    haptic('myTurn', vibrate)
+  }, [view?.isMyTurn, room.game?.phase, room.game?.round, room.game?.clueIndex, vibrate])
 
   /* ---------------- winner / result ---------------- */
   /*
@@ -368,7 +381,7 @@ export function OnlineGamePhases({ online, onExit }) {
               <Badge tone="cyan">round {room.game.round}</Badge>
               <h2 className="font-display text-[19px] leading-tight tracking-[.1em] text-violet-50">GIVE YOUR CLUE.</h2>
               <p className="font-display text-[13px] tracking-[.14em] text-magenta-glow">DON'T REVEAL THE WORD.</p>
-              <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-violet-100/70">One clue per player, in turn order. The timer keeps the table moving — the host starts it when the round opens.</p>
+              <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-violet-100/70">One clue per player, in turn order. Each turn's timer starts itself; the host can pause or stop it if the table needs air.</p>
               <div className="flex flex-wrap justify-center gap-1.5">
                 <Badge tone="muted">{room.config.turnSeconds}s turns</Badge>
                 <Badge tone="muted">{room.config.categoryLabel}</Badge>
@@ -393,8 +406,12 @@ export function OnlineGamePhases({ online, onExit }) {
 
   /* ---------------- clues ---------------- */
   if (view?.screen === 'clues') {
-    const running = Boolean(room.game.timer?.running)
-    const secondsLeft = timerRemaining ?? room.config.turnSeconds
+    const clock = room.game.timer
+    const stance = timerStance(clock, room.config.turnSeconds)
+    const running = stance === 'running'
+    const secondsLeft = clock ? sharedTimerRemaining(clock) : room.config.turnSeconds
+    const ringSeconds = stance === 'stopped' ? room.config.turnSeconds : secondsLeft
+    const ringLabel = running ? 'seconds' : stance === 'paused' ? 'paused' : stance === 'stopped' ? 'no limit' : 'ready'
     return (
       <>
         {header('clues', <Badge tone={view.isMyTurn ? 'magenta' : 'muted'}>{view.isMyTurn ? 'your turn' : 'waiting'}</Badge>)}
@@ -423,19 +440,30 @@ export function OnlineGamePhases({ online, onExit }) {
           </div>
 
           <div className="flex flex-col items-center gap-4">
-            <CountdownRing secondsLeft={secondsLeft} duration={room.config.turnSeconds} running={running} muted={!view.isMyTurn} label={running ? 'seconds' : 'ready'} />
+            <CountdownRing secondsLeft={ringSeconds} duration={room.config.turnSeconds} running={running} muted={!view.isMyTurn} label={ringLabel} />
+            {isHost && (
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="flex flex-wrap justify-center gap-2">
+                  {running ? (
+                    <Button variant="ghost" size="sm" onClick={() => actions.timerControl('pause')}>
+                      ⏸ Pause timer
+                    </Button>
+                  ) : (
+                    <Button variant="primary" size="sm" onClick={() => actions.timerControl('resume')}>
+                      {stance === 'paused' ? '▶ Resume timer' : stance === 'stopped' ? '↻ Restart timer' : '▶ Start timer'}
+                    </Button>
+                  )}
+                  {stance !== 'stopped' && (
+                    <Button variant="quiet" size="sm" onClick={() => actions.timerControl('stop')}>
+                      Stop — no limit
+                    </Button>
+                  )}
+                </div>
+                <p className="font-mono text-[9px] tracking-[.12em] text-violet-200/40">host-only controls · the table just watches</p>
+              </div>
+            )}
             {view.isMyTurn ? (
               <div className="flex flex-wrap justify-center gap-2">
-                {!running && (
-                  <Button variant="primary" size="sm" onClick={actions.startTimer}>
-                    Start timer
-                  </Button>
-                )}
-                {running && (
-                  <Button variant="ghost" size="sm" onClick={actions.stopTimer}>
-                    Stop timer
-                  </Button>
-                )}
                 <Button
                   variant={view.isLastClue ? 'primary' : 'default'}
                   size="sm"
